@@ -1,6 +1,12 @@
 // Order.js
 const mongoose = require("mongoose");
 
+
+const counterSchema = new mongoose.Schema({
+  _id: { type: String, required: true }, // e.g., "orderId"
+  seq: { type: Number, default: 0 },
+});
+
 const orderSchema = new mongoose.Schema(
   {
     orderId: { type: String, unique: true },
@@ -111,6 +117,28 @@ const orderSchema = new mongoose.Schema(
   },
   { timestamps: true }
 );
+const Counter = mongoose.model("Counter", counterSchema);
+
+orderSchema.pre("save", async function (next) {
+  if (this.isNew && !this.orderId) {
+    try {
+      const counter = await Counter.findByIdAndUpdate(
+        { _id: "orderId" },
+        { $inc: { seq: 1 } },
+        { new: true, upsert: true }
+      );
+
+      const seqNumber = counter.seq.toString().padStart(5, "0"); // e.g., 00001
+      this.orderId = `ORD${seqNumber}`;
+      next();
+    } catch (err) {
+      next(err);
+    }
+  } else {
+    next();
+  }
+});
+
 
 // 🗺️ Indexes
 orderSchema.index({ pingLocation: "2dsphere" });

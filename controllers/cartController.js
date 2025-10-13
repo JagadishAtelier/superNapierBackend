@@ -166,19 +166,58 @@ exports.addToCart = async (req, res) => {
 
 
   // get card by user id
-  exports.getCartByUserId = async (req, res) => {
-    try {
-      const userId = req.user._id;
-      const user = await User.findById(userId);
-      if (!user) return res.status(404).json({ success: false, message: "User not found" });
-      const cart = await Cart.findOne({ user: userId }).populate("items.product", "name price images");
-      // console.log("Cart for user:", cart);
-      if (!cart) return res.status(404).json({ success: false, message: "Cart is empty" });
-      res.status(200).json({ success: true, data: cart });
-    } catch (error) {
-      res.status(500).json({ success: false, message: error.message });
-    }
-  };
+exports.getCartByUserId = async (req, res) => {
+  try {
+    const userId = req.user._id;
+    const user = await User.findById(userId);
+    if (!user)
+      return res.status(404).json({ success: false, message: "User not found" });
+
+    const cart = await Cart.findOne({ user: userId }).populate(
+      "items.product",
+      "name price images weightOptions"
+    );
+
+    if (!cart)
+      return res.status(404).json({ success: false, message: "Cart is empty" });
+
+    // Add stock info for each cart item based on weightOption
+    const itemsWithStock = cart.items.map((item) => {
+      const product = item.product;
+      let stock = 0;
+
+      if (product?.weightOptions?.length && item.weightOption) {
+        const weightOption = product.weightOptions.find(
+          (w) => w._id.toString() === item.weightOption.toString()
+        );
+        stock = weightOption?.stock || 0;
+      }
+
+      // Also optionally update price and discountPrice from selected weightOption
+      const selectedOption = product?.weightOptions?.find(
+        (w) => w._id.toString() === item.weightOption?.toString()
+      );
+      const price = selectedOption?.price ?? item.price;
+      const discountPrice = selectedOption?.discountPrice ?? item.discountPrice;
+
+      return {
+        ...item.toObject(),
+        stock,
+        price,
+        discountPrice,
+      };
+    });
+
+    res.status(200).json({
+      success: true,
+      data: { ...cart.toObject(), items: itemsWithStock },
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+
 
 
   exports.updateCartItem = async (req, res) => {

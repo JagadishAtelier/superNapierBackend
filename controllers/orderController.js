@@ -1,36 +1,23 @@
 // orderController.js
 const Order = require("../Model/Order");
 const mongoose = require("mongoose");
+const Product = require("../Model/ProductModel");
 
 exports.createOrder = async (req, res) => {
   try {
     const {
-      buyer, // user ID
-      buyerDetails,
-      shippingAddress,
-      location,
-      pingLocation,
-      deliveryInstructions,
-      paymentMethod,
-      paymentStatus,
-      paymentDate,
-      paymentVerifiedAt,
-      razorpayOrderId,
-      razorpayPaymentId,
-      razorpaySignature,
+      buyer,
       products,
+      location,
       subtotal = 0,
       discount = 0,
       taxAmount = 0,
       shippingFee = 0,
       total,
       finalAmount,
-      gstNumber,
-      companyName,
+      ...rest
     } = req.body;
-    console.log("Creating order with data:", req.body);
 
-    // ✅ Validate essential fields
     if (!buyer || !products?.length || !location) {
       return res.status(400).json({
         success: false,
@@ -38,87 +25,72 @@ exports.createOrder = async (req, res) => {
       });
     }
 
-    // 🧾 Generate unique orderId if not provided
-    const orderId = req.body.orderId || `ORD${Date.now()}`;
+    // --- Check stock for each product ---
+    for (const item of products) {
+      const product = await Product.findById(item.productId);
+      if (!product) {
+        return res.status(400).json({ success: false, message: "Product not found" });
+      }
 
-    // 💰 Calculate total and finalAmount deterministically
-    const computedTotal = typeof total === "number" ? total : products.reduce((sum, p) => {
-      const price = Number(p.price ?? 0);
-      const qty = Number(p.quantity ?? 1);
-      return sum + price * qty;
-    }, 0);
+      const weightOption = product.weightOptions.find(
+        (w) => w._id.toString() === item.weightOptionId.toString()
+      );
 
-    const computedFinalAmount =
-      typeof finalAmount === "number"
-        ? finalAmount
-        : computedTotal - (discount || 0) + (taxAmount || 0) + (shippingFee || 0);
+      if (!weightOption) {
+        return res.status(400).json({ success: false, message: "Weight option not found" });
+      }
 
-    // 🧱 Build order payload (only include allowed fields)
+      if (weightOption.stock < item.quantity) {
+        return res.status(400).json({
+          success: false,
+          message: `Insufficient stock for ${product.name} (${weightOption.weight}${weightOption.unit})`,
+        });
+      }
+    }
+
+    // --- Decrease stock ---
+    for (const item of products) {
+      await Product.updateOne(
+        { _id: item.productId, "weightOptions._id": item.weightOptionId },
+        { $inc: { "weightOptions.$.stock": -item.quantity } }
+      );
+    }
+
+    // --- Create order ---
+    
+    const computedTotal = typeof total === "number" ? total : products.reduce((sum, p) => sum + p.price * p.quantity, 0);
+    const computedFinalAmount = typeof finalAmount === "number" ? finalAmount : computedTotal - discount + taxAmount + shippingFee;
+
     const orderData = {
-      orderId,
       buyer,
-      buyerDetails,
-      shippingAddress,
-      location,
-      pingLocation,
-      deliveryInstructions,
-      paymentMethod,
-      paymentStatus,
-      paymentDate,
-      paymentVerifiedAt,
-      razorpayOrderId,
-      razorpayPaymentId,
-      razorpaySignature,
       products,
       subtotal,
+      location,
       discount,
       taxAmount,
       shippingFee,
       total: computedTotal,
       finalAmount: computedFinalAmount,
-      gstNumber,
-      companyName,
+      ...rest,
     };
 
     const order = await Order.create(orderData);
 
-    // Real-time notifications (emit BEFORE final response is fine; either works)
+    // Emit real-time updates if io exists (your existing code)
     const io = req.app?.locals?.io;
     if (io) {
-      // Notify admins of new order
       io.to("admins").emit("newOrder", {
         _id: order._id,
         orderId: order.orderId,
-        buyer: order.buyerDetails,
+        buyer: order.buyer,
         total: order.total,
         finalAmount: order.finalAmount,
         status: order.status,
         createdAt: order.createdAt,
       });
-
-      // Notify pilots with snapshot of unclaimed orders
-      const unclaimedOrders = await Order.find({ claimedBy: null })
-        .populate("buyer", "name email")
-        .populate("products.productId", "name price");
-
-      io.to("pilots").emit("ordersUpdate", {
-        orders: unclaimedOrders.map((o) => ({
-          _id: o._id,
-          orderId: o.orderId,
-          total: o.total,
-          finalAmount: o.finalAmount,
-          itemsCount: o.products?.length || 0,
-          createdAt: o.createdAt,
-          status: o.status,
-        })),
-      });
     }
 
-    return res.status(201).json({
-      success: true,
-      message: "Order created successfully ✅",
-      data: order,
-    });
+    return res.status(201).json({ success: true, message: "Order created successfully ✅", data: order });
   } catch (err) {
     console.error("Order creation failed:", err);
     return res.status(500).json({ success: false, error: err.message });
