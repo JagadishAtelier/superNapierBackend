@@ -6,6 +6,7 @@ const { protect, protectPilot, restrictToRole } = require('../middleware/auth');
 // public / user routes
 router.post("/", orderController.createOrder);
 router.get("/", orderController.getOrders);
+router.put("/:id/adminorderstatus",orderController.updateOrderStatusByAdmin);
 
 // these need authentication
 router.get("/unclaimed", protectPilot, orderController.getOrdersbynotclaime);

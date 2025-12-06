@@ -273,7 +273,7 @@ exports.updateOrderStatus = async (req, res) => {
   try {
     const { status } = req.body;
     // allowed statuses must match schema
-    const allowed = ["pending", "claimed", "reached_pickup", "picked_up", "delivered", "cancelled"];
+    const allowed = ["pending","Processing", "claimed", "reached_pickup","shipped", "picked_up", "delivered", "cancelled"];
     if (!allowed.includes(status)) return res.status(400).json({ success: false, message: "Invalid status" });
 
     const order = await Order.findById(req.params.id);
@@ -309,6 +309,35 @@ exports.updateOrderStatus = async (req, res) => {
       }
     }
   } catch (err) {
+    res.status(400).json({ success: false, error: err.message });
+  }
+};
+
+exports.updateOrderStatusByAdmin = async (req, res) => {
+  try {
+    const { status } = req.body;
+
+    // Allowed statuses for admin
+    const allowedStatuses = ["pending", "Processing", "shipped", "delivered", "cancelled"];
+    if (!allowedStatuses.includes(status)) {
+      return res.status(400).json({ success: false, message: "Invalid status" });
+    }
+
+    const order = await Order.findById(req.params.id);
+    if (!order) {
+      return res.status(404).json({ success: false, message: "Order not found" });
+    }
+
+    order.status = status;
+
+    // Set timestamps based on status
+    if (status === "delivered") order.deliveredAt = new Date();
+    if (status === "cancelled") order.cancelledAt = new Date();
+
+    await order.save();
+
+    res.json({ success: true, data: order });
+    } catch (err) {
     res.status(400).json({ success: false, error: err.message });
   }
 };

@@ -40,8 +40,10 @@ const orderSchema = new mongoose.Schema(
       enum: [
         "pending",
         "claimed",
+        "Processing",
         "reached_pickup",
         "picked_up",
+        "shipped",
         "delivered",
         "cancelled",
       ],
