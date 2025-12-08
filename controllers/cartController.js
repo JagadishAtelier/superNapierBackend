@@ -4,25 +4,22 @@ const Product = require("../Model/ProductModel");
 // Add item to cart
 exports.addToCart = async (req, res) => {
   try {
-    const { productId, quantity = 1, price, weightOptionId, unit } = req.body;
+    const { productId, quantity = 1, price, weightOptionId, unit, cuttingType } = req.body;
     const userId = req.user._id;
 
-    console.log("[addToCart] body:", { productId, quantity, price, weightOptionId, unit, userId });
+    console.log("[addToCart] body:", { productId, quantity, price, weightOptionId, unit, userId, cuttingType });
 
-    // fetch product
     const product = await Product.findById(productId).lean();
     if (!product) return res.status(404).json({ success: false, message: "Product not found" });
 
-    // resolve chosen weight option
     let chosenOption = null;
     if (Array.isArray(product.weightOptions) && product.weightOptions.length > 0) {
       if (weightOptionId) {
         chosenOption = product.weightOptions.find(o => o._id && o._id.toString() === weightOptionId.toString());
       }
-      if (!chosenOption) chosenOption = product.weightOptions[0]; // fallback
+      if (!chosenOption) chosenOption = product.weightOptions[0];
     }
 
-    // determine final price
     let finalPrice = price;
     if (finalPrice === undefined || finalPrice === null) {
       if (chosenOption && chosenOption.price != null) finalPrice = chosenOption.price;
@@ -34,15 +31,11 @@ exports.addToCart = async (req, res) => {
     finalPrice = Number(finalPrice);
     if (Number.isNaN(finalPrice)) return res.status(400).json({ success: false, message: "Invalid price value" });
 
-    // build chosen metadata
     const chosenWeightOptionId = chosenOption?._id || null;
     const chosenWeight = chosenOption?.weight ?? null;
     const chosenDiscount = chosenOption?.discountPrice ?? null;
-
-    // decide chosenUnit: prefer explicit request unit, otherwise fallback to weightOption.unit (if available)
     const chosenUnit = unit ?? chosenOption?.unit ?? null;
 
-    // find or create cart
     let cart = await Cart.findOne({ user: userId });
     const qtyToAdd = Number(quantity) || 1;
 
@@ -57,44 +50,47 @@ exports.addToCart = async (req, res) => {
           weight: chosenWeight,
           unit: chosenUnit,
           discountPrice: chosenDiscount,
+          cuttingType: cuttingType || "",            // ← cuttingType
         }],
       });
     } else {
-      // Update existing item if product + weightOption + unit matches
       const itemIndex = cart.items.findIndex(item => {
         const itemProduct = item.product?.toString();
         const itemWeightOpt = item.weightOption ? item.weightOption.toString() : "";
         const itemUnit = item.unit ?? "";
-        const matchWeightOpt = String(itemWeightOpt || "") === String(chosenWeightOptionId || "");
-        const matchUnit = String(itemUnit) === String(chosenUnit || "");
-        return itemProduct === productId.toString() && matchWeightOpt && matchUnit;
+        const itemCut = item.cuttingType ?? "";
+
+        const matchW = String(itemWeightOpt) === String(chosenWeightOptionId || "");
+        const matchU = String(itemUnit) === String(chosenUnit || "");
+        const matchC = String(itemCut) === String(cuttingType || ""); // ← match by cuttingType too
+
+        return itemProduct === productId.toString() && matchW && matchU && matchC;
       });
 
       if (itemIndex > -1) {
         cart.items[itemIndex].quantity = (cart.items[itemIndex].quantity || 0) + qtyToAdd;
-        // optionally update price snapshot:
-        // cart.items[itemIndex].price = finalPrice;
       } else {
-        // push as a new line (different weightOption or unit)
         cart.items.push({
           product: productId,
           quantity: qtyToAdd,
           price: finalPrice,
           weightOption: chosenWeightOptionId,
           weight: chosenWeight,
-          unit: chosenUnit,          // <- persist unit
+          unit: chosenUnit,
           discountPrice: chosenDiscount,
+          cuttingType: cuttingType || "",         // ← cuttingType
         });
       }
 
-      // DEDUPE existing duplicates for same product + weightOption + unit (safety)
-      // Build map key = `${productId}_${weightOptionId||''}_${unit||''}`
       const map = new Map();
       for (const it of cart.items) {
         const pid = it.product?.toString();
         const wopt = it.weightOption ? it.weightOption.toString() : "";
         const u = it.unit ?? "";
-        const key = `${pid}_${wopt}_${u}`;
+        const c = it.cuttingType ?? "";           // ← include in key
+
+        const key = `${pid}_${wopt}_${u}_${c}`;   // ← include cuttingType in dedupe
+
         if (!map.has(key)) {
           map.set(key, {
             product: it.product,
@@ -104,27 +100,28 @@ exports.addToCart = async (req, res) => {
             weight: it.weight || null,
             unit: it.unit || null,
             discountPrice: it.discountPrice || null,
-            _id: it._id, // keep first id (mongoose will handle _id)
+            cuttingType: it.cuttingType || "",   // ← keep value
+            _id: it._id,
           });
         } else {
-          // merge quantities (and keep first price/metadata)
           const existing = map.get(key);
           existing.quantity = (existing.quantity || 0) + (it.quantity || 0);
           map.set(key, existing);
         }
       }
 
-      // replace cart.items with deduped items array
       cart.items = Array.from(map.values());
     }
 
     const saved = await cart.save();
     return res.status(200).json({ success: true, data: saved });
+
   } catch (err) {
     console.error("addToCart error:", err);
     return res.status(500).json({ success: false, message: err.message });
   }
 };
+
 
 
   // Get user's cart

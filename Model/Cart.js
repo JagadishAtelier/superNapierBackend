@@ -21,6 +21,10 @@ const cartItemSchema = new mongoose.Schema({
     type: Number,
     required: false,
   },
+  cuttingType: {
+    type: String,
+    default: "",
+  },
 }, { _id: true }); 
 
 const cartSchema = new mongoose.Schema({

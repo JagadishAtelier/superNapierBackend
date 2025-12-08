@@ -1,7 +1,6 @@
 // Order.js
 const mongoose = require("mongoose");
 
-
 const counterSchema = new mongoose.Schema({
   _id: { type: String, required: true }, // e.g., "orderId"
   seq: { type: Number, default: 0 },
@@ -78,12 +77,35 @@ const orderSchema = new mongoose.Schema(
         unit: { type: String, enum: ["g", "kg", "piece"]},
         price: Number,
         quantity: { type: Number, default: 1 },
+        cuttingType: { type: String, default: "" },
       },
     ],
 
     // 🔹 Pricing breakdown
     subtotal: { type: Number, default: 0 },
+
+    // total discount on order (includes coupon discount + any other discounts)
     discount: { type: Number, default: 0 },
+
+    // coupon-specific discount (snapshot of what was applied)
+    coupon: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Coupon",
+      default: null,
+    },
+
+    couponSnapshot: {
+      // stored so order keeps coupon details even if coupon record changes later
+      name: String,
+      code: String,
+      percentage: Number,
+      minOrderAmount: { type: Number, default: 0 },
+      maxDiscountAmount: { type: Number, default: 0 },
+    },
+
+    couponDiscount: { type: Number, default: 0 }, // actual discount amount applied due to coupon
+    couponAppliedAt: { type: Date, default: null }, // when coupon was applied
+
     taxAmount: { type: Number, default: 0 },
     shippingFee: { type: Number, default: 0 },
 
@@ -141,12 +163,13 @@ orderSchema.pre("save", async function (next) {
   }
 });
 
-
 // 🗺️ Indexes
 orderSchema.index({ pingLocation: "2dsphere" });
 orderSchema.index({ status: 1, claimExpiresAt: 1 });
+// index coupon for faster queries (optional)
+orderSchema.index({ coupon: 1 });
 
-// 🧾 Auto-generate orderId
+// 🧾 Auto-generate orderId (fallback if earlier hook didn't run)
 orderSchema.pre("save", function (next) {
   if (!this.orderId) {
     this.orderId = `ORD${Date.now()}`;

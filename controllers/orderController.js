@@ -2,6 +2,7 @@
 const Order = require("../Model/Order");
 const mongoose = require("mongoose");
 const Product = require("../Model/ProductModel");
+const Coupon = require("../Model/CouponModel");
 
 exports.createOrder = async (req, res) => {
   try {
@@ -15,6 +16,7 @@ exports.createOrder = async (req, res) => {
       shippingFee = 0,
       total,
       finalAmount,
+      couponCode,
       ...rest
     } = req.body;
 
@@ -56,17 +58,83 @@ exports.createOrder = async (req, res) => {
       );
     }
 
-    // --- Create order ---
-    
-    const computedTotal = typeof total === "number" ? total : products.reduce((sum, p) => sum + p.price * p.quantity, 0);
-    const computedFinalAmount = typeof finalAmount === "number" ? finalAmount : computedTotal - discount + taxAmount + shippingFee;
+    // -----------------------------
+    // 🔥 COUPON VALIDATION & APPLY
+    // -----------------------------
+    let coupon = null;
+    let couponDiscount = 0;
+    let couponSnapshot = null;
 
+    if (couponCode) {
+      coupon = await Coupon.findOne({ code: couponCode.toUpperCase() });
+
+      if (!coupon)
+        return res.status(400).json({ success: false, message: "Invalid coupon code" });
+
+      // Status check
+      if (coupon.status !== "active")
+        return res.status(400).json({ success: false, message: "Coupon is not active" });
+
+      const now = new Date();
+
+      // Date check
+      if (now < coupon.startDate)
+        return res.status(400).json({ success: false, message: "Coupon not started yet" });
+
+      if (now > coupon.endDate)
+        return res.status(400).json({ success: false, message: "Coupon expired" });
+
+      // Usage limit
+      if (coupon.usageLimit > 0 && coupon.usedCount >= coupon.usageLimit)
+        return res.status(400).json({ success: false, message: "Coupon usage limit reached" });
+
+      // Min order check
+      if (subtotal < coupon.minOrderAmount)
+        return res.status(400).json({
+          success: false,
+          message: `Minimum order amount ₹${coupon.minOrderAmount} required`,
+        });
+
+      // Calculate discount
+      couponDiscount = (subtotal * coupon.percentage) / 100;
+
+      // Apply max discount cap
+      if (coupon.maxDiscountAmount > 0) {
+        couponDiscount = Math.min(couponDiscount, coupon.maxDiscountAmount);
+      }
+
+      // Prepare snapshot
+      couponSnapshot = {
+        name: coupon.name,
+        code: coupon.code,
+        percentage: coupon.percentage,
+        minOrderAmount: coupon.minOrderAmount,
+        maxDiscountAmount: coupon.maxDiscountAmount,
+      };
+    }
+
+    // -----------------------------
+    // 🔥 Compute Final Amount
+    // -----------------------------
+    const computedTotal =
+      typeof total === "number"
+        ? total
+        : products.reduce((sum, p) => sum + p.price * p.quantity, 0);
+
+    const computedDiscount = discount + couponDiscount;
+
+    const computedFinalAmount =
+      typeof finalAmount === "number"
+        ? finalAmount
+        : computedTotal - computedDiscount + taxAmount + shippingFee;
+
+    // --- Build order payload ---
     const orderData = {
       buyer,
       products,
       subtotal,
       location,
-      discount,
+      discount: computedDiscount,
       taxAmount,
       shippingFee,
       total: computedTotal,
@@ -74,9 +142,25 @@ exports.createOrder = async (req, res) => {
       ...rest,
     };
 
+    // Store coupon details
+    if (coupon) {
+      orderData.coupon = coupon._id;
+      orderData.couponSnapshot = couponSnapshot;
+      orderData.couponDiscount = couponDiscount;
+      orderData.couponAppliedAt = new Date();
+    }
+
+    // --- Create order ---
     const order = await Order.create(orderData);
 
-    // Emit real-time updates if io exists (your existing code)
+    // 🔥 Increase coupon usage count safely
+    if (coupon) {
+      await Coupon.findByIdAndUpdate(coupon._id, {
+        $inc: { usedCount: 1 },
+      });
+    }
+
+    // Emit real-time updates (existing code)
     const io = req.app?.locals?.io;
     if (io) {
       io.to("admins").emit("newOrder", {
@@ -90,7 +174,11 @@ exports.createOrder = async (req, res) => {
       });
     }
 
-    return res.status(201).json({ success: true, message: "Order created successfully ✅", data: order });
+    return res.status(201).json({
+      success: true,
+      message: "Order created successfully ✅",
+      data: order,
+    });
   } catch (err) {
     console.error("Order creation failed:", err);
     return res.status(500).json({ success: false, error: err.message });
