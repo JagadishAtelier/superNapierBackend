@@ -3,6 +3,8 @@ const Order = require("../Model/Order");
 const mongoose = require("mongoose");
 const Product = require("../Model/ProductModel");
 const Coupon = require("../Model/CouponModel");
+const webpush = require("../services/notifications");
+const Subscription = require("../Model/Subscription");
 
 exports.createOrder = async (req, res) => {
   try {
@@ -139,6 +141,7 @@ exports.createOrder = async (req, res) => {
       shippingFee,
       total: computedTotal,
       finalAmount: computedFinalAmount,
+      notification_read: false,
       ...rest,
     };
 
@@ -170,6 +173,7 @@ exports.createOrder = async (req, res) => {
         total: order.total,
         finalAmount: order.finalAmount,
         status: order.status,
+        notification_read: order.notification_read,
         createdAt: order.createdAt,
       });
     }
@@ -403,32 +407,98 @@ exports.updateOrderStatus = async (req, res) => {
 
 exports.updateOrderStatusByAdmin = async (req, res) => {
   try {
-    const { status } = req.body;
+    console.log("🟡 updateOrderStatusByAdmin started");
 
-    // Allowed statuses for admin
+    const { status } = req.body;
+    console.log("🔹 Requested Status:", status);
+
     const allowedStatuses = ["pending", "Processing", "shipped", "delivered", "cancelled"];
     if (!allowedStatuses.includes(status)) {
+      console.log("❌ Invalid status received:", status);
       return res.status(400).json({ success: false, message: "Invalid status" });
     }
 
     const order = await Order.findById(req.params.id);
+    console.log("🔹 Found Order:", order?._id);
+
     if (!order) {
+      console.log("❌ Order not found:", req.params.id);
       return res.status(404).json({ success: false, message: "Order not found" });
     }
 
     order.status = status;
-
-    // Set timestamps based on status
     if (status === "delivered") order.deliveredAt = new Date();
     if (status === "cancelled") order.cancelledAt = new Date();
 
     await order.save();
 
+    console.log("✅ Order updated successfully:", order.orderId);
+
+    // Send response early
     res.json({ success: true, data: order });
-    } catch (err) {
-    res.status(400).json({ success: false, error: err.message });
+
+    // ==================================================
+    // SEND PUSH TO BUYER USING Subscription COLLECTION
+    // ==================================================
+    console.log("🔔 PUSH PROCESS STARTED -----");
+
+    try {
+      // ensure buyer is string
+      const buyerId = order.buyer ? order.buyer.toString() : null;
+      console.log("👤 Buyer ID:", buyerId);
+
+      if (!buyerId) {
+        console.log("❌ No Buyer ID found in order, abort push");
+        return;
+      }
+
+      const subs = await Subscription.find({ user: buyerId });
+      console.log("📦 Subscriptions found:", subs.length);
+
+      if (!subs || subs.length === 0) {
+        console.log("❌ No Subscription found for this buyer");
+        return;
+      }
+
+      const payload = JSON.stringify({
+        title: "Order Update",
+        body: `Your order ${order.orderId} is now ${status}`,
+        orderId: order._id,
+        status,
+      });
+
+      console.log("📨 Payload ready:", payload);
+
+      await Promise.all(
+        subs.map(async (sub) => {
+          console.log("➡ Sending push to endpoint:", sub.endpoint);
+          try {
+            await webpush.sendNotification(sub, payload);
+            console.log("✅ Push sent to:", sub.endpoint);
+          } catch (err) {
+            console.log("🚨 Push Error for", sub.endpoint, ":", err?.message || err);
+            if (err && (err.statusCode === 410 || err.statusCode === 404)) {
+              try {
+                await Subscription.deleteOne({ _id: sub._id });
+                console.log("🗑️ Removed expired subscription:", sub.endpoint);
+              } catch (delErr) {
+                console.log("Failed to remove subscription:", delErr?.message || delErr);
+              }
+            }
+          }
+        })
+      );
+
+      console.log("🎉 All push attempts completed");
+    } catch (pushErr) {
+      console.log("🚨 PUSH PROCESS FAILED:", pushErr?.message || pushErr);
+    }
+  } catch (err) {
+    console.log("🔥 Controller Error:", err.message);
+    return res.status(400).json({ success: false, error: err.message });
   }
 };
+
 
 // �� Get orders for a pilot
 exports.getOrdersbypilot = async (req, res) => {
@@ -462,5 +532,49 @@ exports.getOrdersbypilot = async (req, res) => {
     }
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
+  }
+};
+
+
+// 📌 Get unread notification orders
+exports.getUnreadOrders = async (req, res) => {
+  try {
+    const orders = await Order.find({ notification_read: false })
+      .populate("buyer", "name email")
+      .populate("products.productId", "name price images")
+      .sort({ createdAt: -1 });
+
+    return res.json({ success: true, data: orders });
+  } catch (err) {
+    console.log("🔴 getUnreadOrders error:", err.message);
+    return res.status(500).json({ success: false, error: err.message });
+  }
+};
+
+
+// 📌 Mark order notification as read
+exports.markOrderAsRead = async (req, res) => {
+  try {
+    const order = await Order.findByIdAndUpdate(
+      req.params.id,
+      { notification_read: true },
+      { new: true }
+    );
+
+    if (!order) {
+      return res.status(404).json({
+        success: false,
+        message: "Order not found",
+      });
+    }
+
+    return res.json({
+      success: true,
+      message: "Notification marked as read",
+      data: order,
+    });
+  } catch (err) {
+    console.log("🔴 markOrderAsRead error:", err.message);
+    return res.status(400).json({ success: false, error: err.message });
   }
 };

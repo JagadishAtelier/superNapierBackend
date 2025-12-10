@@ -48,6 +48,7 @@ const orderSchema = new mongoose.Schema(
       ],
       default: "pending",
     },
+    notification_read: { type: Boolean, default: false },
 
     // 🔹 Payment info
     paymentMethod: {

@@ -128,3 +128,24 @@ exports.verifyCoupon = async (req, res) => {
     res.status(500).json({ message: error.message });
   }
 };
+
+exports.getAvailableCoupons = async (req, res) => {
+  try {
+    const today = new Date();
+
+    const coupons = await Coupon.find({
+      status: "active",
+      startDate: { $lte: today },
+      endDate: { $gte: today },
+      $or: [
+        { usageLimit: 0 }, 
+        { $expr: { $lt: ["$usedCount", "$usageLimit"] } }
+      ]
+    });
+
+    res.status(200).json(coupons);
+
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};

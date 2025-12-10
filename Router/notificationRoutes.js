@@ -7,13 +7,14 @@ const NotificationHistory = require("../Model/NotificationHistory");
 // ✅ Subscribe
 router.post("/subscribe", async (req, res) => {
   try {
-    const { endpoint, keys } = req.body;
+    const { endpoint, keys, userId } = req.body;
 
     await Subscription.findOneAndUpdate(
       { endpoint },
-      { endpoint, keys },
+      { endpoint, keys, user: userId },   // <-- add user here
       { upsert: true, new: true, setDefaultsOnInsert: true }
     );
+    console.log("userid :", userId);
 
     res.status(201).json({ message: "Subscribed!" });
   } catch (err) {
@@ -21,6 +22,7 @@ router.post("/subscribe", async (req, res) => {
     res.status(500).json({ error: "Failed to subscribe" });
   }
 });
+
 
 // ✅ Send Notification (and save to history)
 router.post("/send", async (req, res) => {
@@ -82,21 +84,27 @@ router.post("/resend/:id", async (req, res) => {
     });
 
     const subscriptions = await Subscription.find({});
+    console.log("📦 Resending to", subscriptions.length, "subscribers");
+
     await Promise.all(
-      subscriptions.map((sub) =>
-        webpush.sendNotification(sub, payload).catch(async (err) => {
-          if (err.statusCode === 410 || err.statusCode === 404) {
-            await Subscription.deleteOne({ endpoint: sub.endpoint });
-          }
-        })
-      )
+      subscriptions.map(async (sub) => {
+        try {
+          await webpush.sendNotification(sub, payload);
+          console.log("✅ resent to:", sub.endpoint);
+        } catch (err) {
+          console.log("⚠️ Resend push error for", sub.endpoint, ":", err.message);
+          // DO NOT DELETE HERE 👇
+        }
+      })
     );
 
     res.json({ message: "Notification resent successfully" });
   } catch (err) {
+    console.error(err);
     res.status(500).json({ error: "Failed to resend notification" });
   }
 });
+
 
 // GET /notifications/stats
 router.get("/stats", async (req, res) => {
