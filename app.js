@@ -17,6 +17,7 @@ const cartRoutes = require('./Router/cartRoutes')
 const pilotRoutes = require('./Router/pilotuserRoutes')
 const otpRoutes = require('./Router/otpRoutes')
 const couponRoutes = require("./Router/couponRoutes");
+const blogRoutes = require("./Router/blogRoutes");
 const cors = require("cors")
 const app = express();
 require("dotenv").config();
@@ -46,5 +47,6 @@ app.use("/api/cart", cartRoutes);
 app.use("/api/pilot", pilotRoutes);
 app.use("/api/otp", otpRoutes);
 app.use("/api/coupons", couponRoutes);
+app.use("/api/blog", blogRoutes);
 
 module.exports = app;

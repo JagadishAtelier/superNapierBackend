@@ -4,11 +4,28 @@ const Category = require("../Model/categoryModel");
 // 📌 Create Product
 exports.createProduct = async (req, res) => {
   try {
-    const product = new Product(req.body);
-    await product.save();
-    res.status(201).json({ success: true, data: product });
+    let products;
+
+    // If body is an array → Insert many
+    if (Array.isArray(req.body)) {
+      products = await Product.insertMany(req.body);
+    } 
+    // If body is single object → Insert one
+    else {
+      const product = new Product(req.body);
+      products = await product.save();
+    }
+
+    res.status(201).json({
+      success: true,
+      data: products
+    });
+
   } catch (error) {
-    res.status(400).json({ success: false, message: error.message });
+    res.status(400).json({
+      success: false,
+      message: error.message
+    });
   }
 };
 
