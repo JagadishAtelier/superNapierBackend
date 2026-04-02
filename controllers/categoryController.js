@@ -140,3 +140,25 @@ exports.removeSubcategory = async (req, res) => {
     res.status(400).json({ message: error.message });
   }
 };
+
+
+exports.getCategoriesByLang = async (req, res) => {
+  try {
+    const { lang = "en" } = req.query;
+
+    const categories = await Category.find().sort({ createdAt: -1 });
+
+    const formatted = categories.map((cat) => ({
+      _id: cat._id,
+      name: cat.name[lang] || cat.name.en, // ✅ only selected language
+      image: cat.image,
+      createdAt: cat.createdAt,
+      updatedAt: cat.updatedAt,
+    }));
+
+    res.status(200).json(formatted);
+
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};

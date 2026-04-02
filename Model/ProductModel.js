@@ -3,29 +3,40 @@ const mongoose = require("mongoose");
 const productSchema = new mongoose.Schema(
   {
     productId: { type: String, required: true, unique: true },
-    images: [{ type: String }], // Product images
-    name: { type: String, required: true }, // e.g., Chicken Breast, Mutton Curry Cut
-    tamilName : { type : String , required :true},
+    images: [{ type: String }],
+    name: {
+      en: { type: String, required: true },
+      ta: { type: String },
+      hi: { type: String },
+      te: { type: String },
+      kn: { type: String },
+      ml: { type: String },
+    },
     category: { type: mongoose.Schema.Types.ObjectId, ref: "Category", required: true },
-    
+
     productVideoUrl: { type: String },
 
-    description: { type: String }, // Product details
-    tamilDescription : {type : String},
-
-    // ✅ Meat-specific attributes
-    cutType: [{ type: String }], // e.g., "Curry Cut", "Boneless", "Whole"
-    shelfLife: { type: String }, // e.g., "2 days refrigerated", "6 months frozen"
-    storageInstructions: { type: String }, // e.g., "Keep refrigerated at 0-4°C"
+    description: {
+      en: { type: String },
+      ta: { type: String },
+      hi: { type: String },
+      te: { type: String },
+      kn: { type: String },
+      ml: { type: String },
+    },
+    germinationRate: { type: String },
+    yieldPotential: { type: String },
+    season: { type: String },
+    howToUse: { type: String },
 
     unit: { type: String, enum: ["g", "kg", "piece"], default: "kg" },
     weightOptions: [
       {
-        weight: { type: Number, required: true }, 
-        price: { type: Number, required: true }, 
-        discountPrice : {type : Number},
-        unit: { type: String, enum: ["g", "kg", "piece"], default: "kg" },
-        stock: { type: Number, default: 0 }, 
+        weight: { type: Number, required: true },
+        price: { type: Number, required: true },
+        discountPrice: { type: Number },
+        unit: { type: String, enum: ["g", "kg", "piece", "pack"], default: "kg" },
+        stock: { type: Number, default: 0 },
       },
     ],
 
