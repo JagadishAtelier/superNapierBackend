@@ -1,9 +1,9 @@
 // server.js
+require("dotenv").config();
 const http = require("http");
 const mongoose = require("mongoose");
 const { Server } = require("socket.io");
 const app = require("./app"); // your Express app
-require("dotenv").config();
 
 const PORT = process.env.PORT || 5000;
 const MONGO_URI = process.env.MONGO_URI;

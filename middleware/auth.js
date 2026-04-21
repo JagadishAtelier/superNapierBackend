@@ -4,7 +4,10 @@ const User = require('../Model/User');
 const PilotUser = require('../Model/pilotuser'); // adjust path/name if your model file differs
 require('dotenv').config();
 
-const JWT_SECRET = process.env.JWT_SECRET || '0c076c0ff886213a14bb446d72ef0658b254d';
+const JWT_SECRET = process.env.JWT_SECRET;
+if (!JWT_SECRET) {
+    throw new Error('FATAL ERROR: JWT_SECRET is not defined in .env');
+}
 
 // helper to extract token
 function getTokenFromHeader(req) {

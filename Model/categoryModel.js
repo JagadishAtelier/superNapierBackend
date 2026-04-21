@@ -1,11 +1,16 @@
 const mongoose = require("mongoose");
+
 const categorySchema = new mongoose.Schema(
   {
-    name: { type: String, required: true, unique: true }, 
-    tamilName:{type : String , required : true},
-    description: String,
-    tamilDescription:{type : String},
-    image: String,
+    name: {
+      en: { type: String, required: true },
+      ta: { type: String },
+      hi: { type: String },
+      te: { type: String },
+      kn: { type: String },
+      ml: { type: String },
+    },
+    image: [String],
   },
   { timestamps: true }
 );

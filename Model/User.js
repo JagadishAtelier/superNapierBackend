@@ -6,9 +6,10 @@ const userSchema = new mongoose.Schema(
     name: { type: String, required: true },
     email: {
       type: String,
-      required: true,
+      required: false,
       unique: true,
       lowercase: true,
+      sparse: true, // Allow multiple nulls for optional email
     },
     password: { type: String, required: true },
 
@@ -56,5 +57,9 @@ userSchema.pre("save", async function (next) {
 userSchema.methods.comparePassword = function (candidatePassword) {
   return bcrypt.compare(candidatePassword, this.password);
 };
+
+// Indexes
+userSchema.index({ email: 1 });
+userSchema.index({ phone: 1 });
 
 module.exports = mongoose.model("User", userSchema);

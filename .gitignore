@@ -18,7 +18,8 @@ pids/
 # Environment variables
 .env
 .env.*    # For multiple env files like .env.local, .env.production
-
+*.env
+superNapierBackend.env
 # Build output
 dist/
 build/

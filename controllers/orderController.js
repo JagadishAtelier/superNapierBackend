@@ -5,35 +5,66 @@ const Product = require("../Model/ProductModel");
 const Coupon = require("../Model/CouponModel");
 const webpush = require("../services/notifications");
 const Subscription = require("../Model/Subscription");
+const User = require("../Model/User");
+const whatsappService = require("../utils/whatsappService");
 
-exports.createOrder = async (req, res) => {
+const Joi = require("joi");
+
+// Validation Schema
+const createOrderSchema = Joi.object({
+  buyer: Joi.string().required(),
+  products: Joi.array().items(Joi.object({
+    productId: Joi.string().required(),
+    weightOptionId: Joi.string().required(),
+    quantity: Joi.number().min(1).required(),
+    price: Joi.number().required(),
+    name: Joi.string().optional(),
+    weight: Joi.number().optional(),
+    unit: Joi.string().optional(),
+    cuttingType: Joi.string().allow("").optional()
+  })).min(1).required(),
+  location: Joi.string().required(),
+  subtotal: Joi.number().required(),
+  discount: Joi.number().default(0),
+  taxAmount: Joi.number().default(0),
+  shippingFee: Joi.number().default(0),
+  total: Joi.number().required(),
+  finalAmount: Joi.number().required(),
+  couponCode: Joi.string().allow("").optional(),
+  paymentMethod: Joi.string().valid("COD", "online").required(),
+  shippingAddress: Joi.object().optional(),
+}).unknown(true);
+
+exports.createOrder = async (req, res, next) => {
+  const session = await mongoose.startSession();
+  session.startTransaction();
+
   try {
+    // 1. Validate Input
+    const { error, value } = createOrderSchema.validate(req.body);
+    if (error) {
+      return res.status(400).json({ success: false, message: error.details[0].message });
+    }
+
     const {
       buyer,
       products,
       location,
-      subtotal = 0,
-      discount = 0,
-      taxAmount = 0,
-      shippingFee = 0,
+      subtotal,
+      discount,
+      taxAmount,
+      shippingFee,
       total,
       finalAmount,
       couponCode,
       ...rest
-    } = req.body;
+    } = value;
 
-    if (!buyer || !products?.length || !location) {
-      return res.status(400).json({
-        success: false,
-        message: "Missing required fields: buyer, products, or location.",
-      });
-    }
-
-    // --- Check stock for each product ---
+    // 2. Check stock and decrease (Atomic check inside transaction)
     for (const item of products) {
-      const product = await Product.findById(item.productId);
+      const product = await Product.findById(item.productId).session(session);
       if (!product) {
-        return res.status(400).json({ success: false, message: "Product not found" });
+        throw new Error(`Product not found: ${item.productId}`);
       }
 
       const weightOption = product.weightOptions.find(
@@ -41,71 +72,39 @@ exports.createOrder = async (req, res) => {
       );
 
       if (!weightOption) {
-        return res.status(400).json({ success: false, message: "Weight option not found" });
+        throw new Error(`Weight option not found for product: ${product.name}`);
       }
 
       if (weightOption.stock < item.quantity) {
-        return res.status(400).json({
-          success: false,
-          message: `Insufficient stock for ${product.name} (${weightOption.weight}${weightOption.unit})`,
-        });
+        throw new Error(`Insufficient stock for ${product.name} (${weightOption.weight}${weightOption.unit})`);
       }
-    }
 
-    // --- Decrease stock ---
-    for (const item of products) {
+      // Decrease stock
       await Product.updateOne(
         { _id: item.productId, "weightOptions._id": item.weightOptionId },
-        { $inc: { "weightOptions.$.stock": -item.quantity } }
+        { $inc: { "weightOptions.$.stock": -item.quantity } },
+        { session }
       );
     }
 
-    // -----------------------------
-    // 🔥 COUPON VALIDATION & APPLY
-    // -----------------------------
+    // 3. Coupon Validation
     let coupon = null;
     let couponDiscount = 0;
     let couponSnapshot = null;
 
     if (couponCode) {
-      coupon = await Coupon.findOne({ code: couponCode.toUpperCase() });
+      coupon = await Coupon.findOne({ code: couponCode.toUpperCase() }).session(session);
 
-      if (!coupon)
-        return res.status(400).json({ success: false, message: "Invalid coupon code" });
-
-      // Status check
-      if (coupon.status !== "active")
-        return res.status(400).json({ success: false, message: "Coupon is not active" });
+      if (!coupon) throw new Error("Invalid coupon code");
+      if (coupon.status !== "active") throw new Error("Coupon is not active");
 
       const now = new Date();
+      if (now < coupon.startDate || now > coupon.endDate) throw new Error("Coupon expired or not started");
+      if (coupon.usageLimit > 0 && coupon.usedCount >= coupon.usageLimit) throw new Error("Coupon usage limit reached");
+      if (subtotal < coupon.minOrderAmount) throw new Error(`Minimum order amount ₹${coupon.minOrderAmount} required`);
 
-      // Date check
-      if (now < coupon.startDate)
-        return res.status(400).json({ success: false, message: "Coupon not started yet" });
-
-      if (now > coupon.endDate)
-        return res.status(400).json({ success: false, message: "Coupon expired" });
-
-      // Usage limit
-      if (coupon.usageLimit > 0 && coupon.usedCount >= coupon.usageLimit)
-        return res.status(400).json({ success: false, message: "Coupon usage limit reached" });
-
-      // Min order check
-      if (subtotal < coupon.minOrderAmount)
-        return res.status(400).json({
-          success: false,
-          message: `Minimum order amount ₹${coupon.minOrderAmount} required`,
-        });
-
-      // Calculate discount
-      couponDiscount = (subtotal * coupon.percentage) / 100;
-
-      // Apply max discount cap
-      if (coupon.maxDiscountAmount > 0) {
-        couponDiscount = Math.min(couponDiscount, coupon.maxDiscountAmount);
-      }
-
-      // Prepare snapshot
+      couponDiscount = Math.min((subtotal * coupon.percentage) / 100, coupon.maxDiscountAmount || Infinity);
+      
       couponSnapshot = {
         name: coupon.name,
         code: coupon.code,
@@ -113,24 +112,13 @@ exports.createOrder = async (req, res) => {
         minOrderAmount: coupon.minOrderAmount,
         maxDiscountAmount: coupon.maxDiscountAmount,
       };
+
+      // Increase coupon usage
+      await Coupon.findByIdAndUpdate(coupon._id, { $inc: { usedCount: 1 } }, { session });
     }
 
-    // -----------------------------
-    // 🔥 Compute Final Amount
-    // -----------------------------
-    const computedTotal =
-      typeof total === "number"
-        ? total
-        : products.reduce((sum, p) => sum + p.price * p.quantity, 0);
-
+    // 4. Build and Create Order
     const computedDiscount = discount + couponDiscount;
-
-    const computedFinalAmount =
-      typeof finalAmount === "number"
-        ? finalAmount
-        : computedTotal - computedDiscount + taxAmount + shippingFee;
-
-    // --- Build order payload ---
     const orderData = {
       buyer,
       products,
@@ -139,13 +127,12 @@ exports.createOrder = async (req, res) => {
       discount: computedDiscount,
       taxAmount,
       shippingFee,
-      total: computedTotal,
-      finalAmount: computedFinalAmount,
+      total,
+      finalAmount,
       notification_read: false,
       ...rest,
     };
 
-    // Store coupon details
     if (coupon) {
       orderData.coupon = coupon._id;
       orderData.couponSnapshot = couponSnapshot;
@@ -153,17 +140,13 @@ exports.createOrder = async (req, res) => {
       orderData.couponAppliedAt = new Date();
     }
 
-    // --- Create order ---
-    const order = await Order.create(orderData);
+    const [order] = await Order.create([orderData], { session });
 
-    // 🔥 Increase coupon usage count safely
-    if (coupon) {
-      await Coupon.findByIdAndUpdate(coupon._id, {
-        $inc: { usedCount: 1 },
-      });
-    }
+    // 5. Commit Transaction
+    await session.commitTransaction();
+    session.endSession();
 
-    // Emit real-time updates (existing code)
+    // 6. Post-order actions (Async, non-blocking)
     const io = req.app?.locals?.io;
     if (io) {
       io.to("admins").emit("newOrder", {
@@ -178,14 +161,31 @@ exports.createOrder = async (req, res) => {
       });
     }
 
+    // WhatsApp Notification to Buyer
+    try {
+      const user = await User.findById(order.buyer);
+      if (user && user.phone) {
+        await whatsappService.sendOrderNotification(user.phone, {
+          id: order.orderId,
+          total: order.finalAmount,
+          status: order.status
+        });
+      }
+    } catch (wsErr) {
+      console.error("WhatsApp Notification failed:", wsErr.message);
+    }
+
     return res.status(201).json({
       success: true,
       message: "Order created successfully ✅",
       data: order,
     });
+
   } catch (err) {
-    console.error("Order creation failed:", err);
-    return res.status(500).json({ success: false, error: err.message });
+    // Abort Transaction on error
+    await session.abortTransaction();
+    session.endSession();
+    next(err); // Pass to global error handler
   }
 };
 
@@ -492,6 +492,19 @@ exports.updateOrderStatusByAdmin = async (req, res) => {
       console.log("🎉 All push attempts completed");
     } catch (pushErr) {
       console.log("🚨 PUSH PROCESS FAILED:", pushErr?.message || pushErr);
+    }
+
+    // WhatsApp Notification on Status Update
+    try {
+      const user = await User.findById(order.buyer);
+      if (user && user.phone) {
+        await whatsappService.sendTemplate(user.phone, 'order_status_update', [
+          order.orderId,
+          status
+        ]);
+      }
+    } catch (wsErr) {
+      console.error("WhatsApp Status Notification failed:", wsErr.message);
     }
   } catch (err) {
     console.log("🔥 Controller Error:", err.message);
