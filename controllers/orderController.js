@@ -7,6 +7,7 @@ const webpush = require("../services/notifications");
 const Subscription = require("../Model/Subscription");
 const User = require("../Model/User");
 const whatsappService = require("../utils/whatsappService");
+const GlobalSettings = require("../Model/GlobalSettings");
 
 const Joi = require("joi");
 
@@ -28,10 +29,15 @@ const createOrderSchema = Joi.object({
   discount: Joi.number().default(0),
   taxAmount: Joi.number().default(0),
   shippingFee: Joi.number().default(0),
+  shippingType: Joi.string().valid("Normal", "Express").default("Normal"),
   total: Joi.number().required(),
   finalAmount: Joi.number().required(),
   couponCode: Joi.string().allow("").optional(),
-  paymentMethod: Joi.string().valid("COD", "online").required(),
+  paymentMethod: Joi.string().valid("COD", "online", "UPI").required(),
+  paymentProof: Joi.object({
+    screenshot: Joi.string().allow("").optional(),
+    transactionId: Joi.string().allow("").optional()
+  }).optional(),
   shippingAddress: Joi.object().optional(),
 }).unknown(true);
 
@@ -54,23 +60,44 @@ exports.createOrder = async (req, res, next) => {
       discount,
       taxAmount,
       shippingFee,
+      shippingType,
       total,
       finalAmount,
       couponCode,
+      shippingAddress,
+      paymentMethod,
       ...rest
     } = value;
 
-    // 2. Check stock and decrease (Atomic check inside transaction)
+    // 2. Check stock and calculate exact shipping
+    let calculatedShippingFee = 0;
+    const state = shippingAddress?.state?.toLowerCase() || "";
+    const isTamilNadu = state.includes("tamil") || state.trim() === "tn";
+    const shippingLocationType = isTamilNadu ? "TN" : "Outside";
+    
+    let maxShippingFound = 0;
+
     for (const item of products) {
       const product = await Product.findById(item.productId).session(session);
       if (!product) {
         throw new Error(`Product not found: ${item.productId}`);
       }
 
+      // Calculate regional shipping for this product
+      let productShipping = 0;
+      if (shippingType === "Express") {
+        productShipping = isTamilNadu ? (product.shippingExpressTN || 0) : (product.shippingExpressOutside || 0);
+      } else {
+        productShipping = isTamilNadu ? (product.shippingNormalTN || 0) : (product.shippingNormalOutside || 0);
+      }
+      
+      if (productShipping > maxShippingFound) {
+        maxShippingFound = productShipping;
+      }
+
       const weightOption = product.weightOptions.find(
         (w) => w._id.toString() === item.weightOptionId.toString()
       );
-
       if (!weightOption) {
         throw new Error(`Weight option not found for product: ${product.name}`);
       }
@@ -78,13 +105,30 @@ exports.createOrder = async (req, res, next) => {
       if (weightOption.stock < item.quantity) {
         throw new Error(`Insufficient stock for ${product.name} (${weightOption.weight}${weightOption.unit})`);
       }
-
       // Decrease stock
       await Product.updateOne(
         { _id: item.productId, "weightOptions._id": item.weightOptionId },
         { $inc: { "weightOptions.$.stock": -item.quantity } },
         { session }
       );
+    }
+
+    // 3. Fetch Settings for Dynamic Threshold
+    const settings = await GlobalSettings.findOne({ settingsId: "site_settings" });
+    const freeShippingThreshold = settings?.freeShippingThreshold || 999;
+
+    // 4. Calculate Shipping Fee with Fallbacks
+    if (subtotal >= freeShippingThreshold) {
+      calculatedShippingFee = 0;
+    } else if (maxShippingFound === 0) {
+      // Fallback fees matching frontend if no product-specific shipping is set
+      if (isTamilNadu) {
+        calculatedShippingFee = (shippingType === "Express") ? 80 : 50;
+      } else {
+        calculatedShippingFee = (shippingType === "Express") ? 150 : 100;
+      }
+    } else {
+      calculatedShippingFee = maxShippingFound;
     }
 
     // 3. Coupon Validation
@@ -119,6 +163,8 @@ exports.createOrder = async (req, res, next) => {
 
     // 4. Build and Create Order
     const computedDiscount = discount + couponDiscount;
+    const finalTotal = subtotal - computedDiscount + taxAmount + calculatedShippingFee;
+
     const orderData = {
       buyer,
       products,
@@ -126,12 +172,20 @@ exports.createOrder = async (req, res, next) => {
       location,
       discount: computedDiscount,
       taxAmount,
-      shippingFee,
-      total,
-      finalAmount,
+      shippingFee: calculatedShippingFee,
+      shippingLocationType,
+      shippingType,
+      total: finalTotal,
+      finalAmount: finalTotal,
       notification_read: false,
+      paymentMethod,
+      shippingAddress,
       ...rest,
     };
+
+    if (paymentMethod === "UPI") {
+      orderData.paymentStatus = "awaiting_verification";
+    }
 
     if (coupon) {
       orderData.coupon = coupon._id;

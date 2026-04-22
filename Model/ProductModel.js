@@ -27,7 +27,24 @@ const productSchema = new mongoose.Schema(
     germinationRate: { type: String },
     yieldPotential: { type: String },
     season: { type: String },
-    howToUse: { type: String },
+    
+    youtubeVideoId: { type: String },
+    statisticalHighlights: [
+      {
+        title: { type: String },
+        description: { type: String },
+        image: { type: String }
+      }
+    ],
+    howToUseSteps: [
+      {
+        title: { type: String },
+        heading: { type: String },
+        description: { type: String },
+        image: { type: String },
+        bullets: [{ type: String }]
+      }
+    ],
 
     unit: { type: String, enum: ["g", "kg", "piece"], default: "kg" },
     weightOptions: [
@@ -41,6 +58,13 @@ const productSchema = new mongoose.Schema(
     ],
 
     SKU: { type: String },
+
+    // Regional Shipping Fees
+    shippingNormalTN: { type: Number, default: 0 },
+    shippingExpressTN: { type: Number, default: 0 },
+    shippingNormalOutside: { type: Number, default: 0 },
+    shippingExpressOutside: { type: Number, default: 0 },
+    isExpressOnly: { type: Boolean, default: false },
     status: { type: String, enum: ["Active", "Inactive"], default: "Inactive" },
   },
   { timestamps: true }
@@ -49,6 +73,5 @@ const productSchema = new mongoose.Schema(
 // Indexes for production performance
 productSchema.index({ category: 1, status: 1 });
 productSchema.index({ "name.en": "text", "name.ta": "text", "name.hi": "text" }); // Text search
-productSchema.index({ productId: 1 });
 
 module.exports = mongoose.model("Product", productSchema);

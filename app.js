@@ -17,6 +17,7 @@ const pilotRoutes = require('./Router/pilotuserRoutes')
 const otpRoutes = require('./Router/otpRoutes')
 const couponRoutes = require("./Router/couponRoutes");
 const blogRoutes = require("./Router/blogRoutes");
+const settingsRoutes = require("./Router/settingsRoutes");
 const razorpayWebhook = require("./Router/razorpayWebhook");
 const cors = require("cors")
 const helmet = require("helmet");
@@ -68,6 +69,7 @@ app.use("/api/pilot", pilotRoutes);
 app.use("/api/otp", otpRoutes);
 app.use("/api/coupons", couponRoutes);
 app.use("/api/blog", blogRoutes);
+app.use("/api/settings", settingsRoutes);
 
 // Global Error Handler (Must be after all routes)
 app.use(errorHandler);

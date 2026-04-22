@@ -114,7 +114,8 @@ exports.addToCart = async (req, res) => {
     }
 
     const saved = await cart.save();
-    return res.status(200).json({ success: true, data: saved });
+    const populated = await Cart.findById(saved._id).populate("items.product", "name price images");
+    return res.status(200).json({ success: true, data: populated });
 
   } catch (err) {
     console.error("addToCart error:", err);
@@ -128,7 +129,7 @@ exports.addToCart = async (req, res) => {
   exports.getCart = async (req, res) => {
     try {
       const userId = req.user._id;
-      const cart = await Cart.findOne({ user: userId }).populate("items.product", "name price image");
+      const cart = await Cart.findOne({ user: userId }).populate("items.product", "name price images");
   
       if (!cart) return res.status(404).json({ message: "Cart is empty" });
       res.status(200).json({ success: true, data: cart });
@@ -147,7 +148,7 @@ exports.addToCart = async (req, res) => {
       { user: userId },
       { $pull: { items: { _id: productId } } },
       { new: true } // returns updated document
-    );
+    ).populate("items.product", "name price images");
 
     if (!result) {
       return res.status(404).json({ success: false, message: "Cart or item not found" });

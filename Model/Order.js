@@ -53,13 +53,21 @@ const orderSchema = new mongoose.Schema(
     // 🔹 Payment info
     paymentMethod: {
       type: String,
-      enum: ["COD", "online"],
+      enum: ["COD", "online", "UPI"],
       required: true,
     },
     paymentStatus: {
       type: String,
-      enum: ["pending", "paid", "failed", "refunded"],
+      enum: ["pending", "paid", "failed", "refunded", "awaiting_verification"],
       default: "pending",
+    },
+    shippingLocationType: {
+      type: String,
+      enum: ["TN", "Outside"],
+    },
+    paymentProof: {
+      screenshot: String,
+      transactionId: String,
     },
     paymentDate: Date,
     paymentVerifiedAt: Date,
@@ -124,11 +132,9 @@ const orderSchema = new mongoose.Schema(
       type: {
         type: String,
         enum: ["Point"],
-        default: "Point",
       },
       coordinates: {
         type: [Number], // [lng, lat]
-        default: undefined,
       },
     },
     pingedAt: Date,
