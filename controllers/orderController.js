@@ -8,6 +8,7 @@ const Subscription = require("../Model/Subscription");
 const User = require("../Model/User");
 const whatsappService = require("../utils/whatsappService");
 const GlobalSettings = require("../Model/GlobalSettings");
+const sendEmail = require("../utils/sendEmail");
 
 const Joi = require("joi");
 
@@ -162,7 +163,7 @@ exports.createOrder = async (req, res, next) => {
     }
 
     // 4. Build and Create Order
-    const computedDiscount = discount + couponDiscount;
+    const computedDiscount = coupon ? couponDiscount : discount;
     const finalTotal = subtotal - computedDiscount + taxAmount + calculatedShippingFee;
 
     const orderData = {
@@ -215,18 +216,83 @@ exports.createOrder = async (req, res, next) => {
       });
     }
 
-    // WhatsApp Notification to Buyer
+    // Notifications (WhatsApp & Email) to Buyer
     try {
       const user = await User.findById(order.buyer);
-      if (user && user.phone) {
-        await whatsappService.sendOrderNotification(user.phone, {
-          id: order.orderId,
-          total: order.finalAmount,
-          status: order.status
-        });
+      if (user) {
+        // WhatsApp Notification
+        if (user.phone) {
+          try {
+            await whatsappService.sendOrderNotification(user.phone, {
+              id: order.orderId,
+              total: order.finalAmount,
+              status: order.status
+            });
+          } catch (wsErr) {
+            console.error("WhatsApp Notification failed:", wsErr.message);
+          }
+        }
+
+        // Email Notification
+        const emailTo = order.buyerDetails?.email || user.email;
+        if (emailTo) {
+          try {
+            const subject = `Order Confirmed - ${order.orderId}`;
+            const htmlContent = `
+              <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #f0f0f0; border-radius: 8px;">
+                <div style="text-align: center; margin-bottom: 20px;">
+                  <h2 style="color: #1b4332; margin-top: 0;">Order Confirmed! 🎉</h2>
+                  <p style="color: #666;">Thank you for shopping with SuperNapier. Your order has been successfully placed.</p>
+                </div>
+                <hr style="border: 0; border-top: 1px solid #eee;" />
+                <div style="margin-bottom: 20px;">
+                  <h3 style="color: #333;">Order Details</h3>
+                  <p style="margin: 4px 0;"><strong>Order ID:</strong> ${order.orderId}</p>
+                  <p style="margin: 4px 0;"><strong>Date:</strong> ${new Date(order.createdAt).toLocaleDateString('en-IN')}</p>
+                  <p style="margin: 4px 0;"><strong>Payment Method:</strong> ${order.paymentMethod}</p>
+                </div>
+                <table style="width: 100%; border-collapse: collapse; margin-bottom: 20px;">
+                  <thead>
+                    <tr style="background-color: #f8f9fa;">
+                      <th style="text-align: left; padding: 8px; border-bottom: 1px solid #eee;">Item</th>
+                      <th style="text-align: center; padding: 8px; border-bottom: 1px solid #eee;">Qty</th>
+                      <th style="text-align: right; padding: 8px; border-bottom: 1px solid #eee;">Price</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    ${order.products.map(item => `
+                      <tr>
+                        <td style="padding: 8px; border-bottom: 1px solid #eee;">${item.name || 'Product'} ${item.weight ? `(${item.weight}${item.unit || ''})` : ''}</td>
+                        <td style="text-align: center; padding: 8px; border-bottom: 1px solid #eee;">${item.quantity}</td>
+                        <td style="text-align: right; padding: 8px; border-bottom: 1px solid #eee;">₹${item.price * item.quantity}</td>
+                      </tr>
+                    `).join('')}
+                  </tbody>
+                </table>
+                <div style="margin-bottom: 20px; text-align: right;">
+                  <p style="margin: 4px 0;"><strong>Subtotal:</strong> ₹${order.subtotal}</p>
+                  ${order.discount ? `<p style="margin: 4px 0; color: #dc3545;"><strong>Discount:</strong> -₹${order.discount}</p>` : ''}
+                  <p style="margin: 4px 0;"><strong>Shipping Fee:</strong> ₹${order.shippingFee}</p>
+                  <h3 style="margin: 8px 0 0 0; color: #1b4332;">Total: ₹${order.finalAmount}</h3>
+                </div>
+                <hr style="border: 0; border-top: 1px solid #eee;" />
+                <div>
+                  <h3 style="color: #333; margin-top: 0;">Shipping Address</h3>
+                  <p style="color: #666; margin: 4px 0;">${order.shippingAddress?.firstName || ''} ${order.shippingAddress?.lastName || ''}</p>
+                  <p style="color: #666; margin: 4px 0;">${order.shippingAddress?.addressLine1 || ''} ${order.shippingAddress?.addressLine2 || ''}</p>
+                  <p style="color: #666; margin: 4px 0;">${order.shippingAddress?.city || ''}, ${order.shippingAddress?.state || ''} - ${order.shippingAddress?.pincode || ''}</p>
+                </div>
+              </div>
+            `;
+            const textContent = `Order Confirmed! Thank you for shopping with SuperNapier. Order ID: ${order.orderId}. Total Amount: ₹${order.finalAmount}.`;
+            await sendEmail(emailTo, subject, htmlContent, textContent);
+          } catch (emailErr) {
+            console.error("Order Confirmation Email failed:", emailErr.message);
+          }
+        }
       }
     } catch (wsErr) {
-      console.error("WhatsApp Notification failed:", wsErr.message);
+      console.error("Notification process failed:", wsErr.message);
     }
 
     return res.status(201).json({
@@ -415,6 +481,68 @@ exports.claimOrder = async (req, res) => {
   }
 };
 
+const sendOrderStatusEmail = async (order, status) => {
+  try {
+    const user = await User.findById(order.buyer);
+    const emailTo = order.buyerDetails?.email || user?.email;
+    if (!emailTo) return;
+
+    let subject = '';
+    let statusDescription = '';
+    let statusTitle = '';
+
+    switch (status) {
+      case 'Processing':
+        statusTitle = 'Order is Processing ⚙️';
+        subject = `Your Order #${order.orderId} is being processed`;
+        statusDescription = 'Great news! We have started preparing your order. We will let you know as soon as it is shipped.';
+        break;
+      case 'shipped':
+        statusTitle = 'Order Shipped 🚚';
+        subject = `Your Order #${order.orderId} has been shipped!`;
+        statusDescription = 'Your package is on its way! We have dispatched it and it should reach you soon.';
+        break;
+      case 'delivered':
+        statusTitle = 'Order Delivered 🏁';
+        subject = `Your Order #${order.orderId} has been delivered`;
+        statusDescription = 'Your order has been successfully delivered. We hope you enjoy your purchase! Thank you for shopping with us.';
+        break;
+      case 'cancelled':
+        statusTitle = 'Order Cancelled ❌';
+        subject = `Your Order #${order.orderId} has been cancelled`;
+        statusDescription = 'Your order has been cancelled. If this was a mistake or you have questions, please reach out to our support team.';
+        break;
+      default:
+        // Do not send emails for other status transitions
+        return;
+    }
+
+    const htmlContent = `
+      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #f0f0f0; border-radius: 8px;">
+        <div style="text-align: center; margin-bottom: 20px;">
+          <h2 style="color: #1b4332; margin-top: 0;">${statusTitle}</h2>
+          <p style="color: #666; font-size: 16px; line-height: 1.5;">${statusDescription}</p>
+        </div>
+        <hr style="border: 0; border-top: 1px solid #eee;" />
+        <div style="margin-bottom: 20px;">
+          <h3 style="color: #333; margin-top: 0;">Order Summary</h3>
+          <p style="margin: 4px 0;"><strong>Order ID:</strong> ${order.orderId}</p>
+          <p style="margin: 4px 0;"><strong>Current Status:</strong> <span style="text-transform: capitalize;">${status}</span></p>
+          <p style="margin: 4px 0;"><strong>Total Amount:</strong> ₹${order.finalAmount}</p>
+        </div>
+        <hr style="border: 0; border-top: 1px solid #eee;" />
+        <div style="text-align: center; margin-top: 20px;">
+          <p style="color: #999; font-size: 12px;">This is an automated notification. Please do not reply directly to this email.</p>
+        </div>
+      </div>
+    `;
+    const textContent = `Your order #${order.orderId} status update: ${status}. ${statusDescription}`;
+    await sendEmail(emailTo, subject, htmlContent, textContent);
+  } catch (err) {
+    console.error(`Failed to send order status email for status ${status}:`, err.message);
+  }
+};
+
 exports.updateOrderStatus = async (req, res) => {
   try {
     const { status } = req.body;
@@ -436,6 +564,9 @@ exports.updateOrderStatus = async (req, res) => {
     await order.save();
 
     res.json({ success: true, data: order });
+
+    // Send order status email notification (non-blocking)
+    sendOrderStatusEmail(order, status);
 
     // -------------------------
     // Real-time notifications
@@ -490,6 +621,9 @@ exports.updateOrderStatusByAdmin = async (req, res) => {
 
     // Send response early
     res.json({ success: true, data: order });
+
+    // Send order status email notification (non-blocking)
+    sendOrderStatusEmail(order, status);
 
     // ==================================================
     // SEND PUSH TO BUYER USING Subscription COLLECTION

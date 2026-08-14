@@ -12,9 +12,12 @@ router.post("/", async (req, res, next) => {
   try {
     const signature = req.headers["x-razorpay-signature"];
 
-    // 1. Verify Signature
+    // 1. Verify Signature using raw body buffer
+    if (!req.rawBody) {
+      return res.status(400).json({ success: false, message: "Raw body missing for signature verification" });
+    }
     const shasum = crypto.createHmac("sha256", WEBHOOK_SECRET);
-    shasum.update(JSON.stringify(req.body));
+    shasum.update(req.rawBody);
     const digest = shasum.digest("hex");
 
     if (signature !== digest) {

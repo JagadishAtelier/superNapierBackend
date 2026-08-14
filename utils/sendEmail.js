@@ -1,61 +1,53 @@
 // utils/sendEmail.js
-const nodemailer = require('nodemailer');
+const axios = require('axios');
 require('dotenv').config();
 
-let transporter;
-
-const initTransporter = () => {
-  if (!transporter) {
-    console.log("📧 Initializing email transporter...");
-    console.log("🛠 ENV VARIABLES:", {
-      host: process.env.EMAIL_HOST,
-      port: process.env.EMAIL_PORT,
-      user: process.env.EMAIL_USER,
-      hasPass: !!process.env.EMAIL_PASS,
-    });
-
-    transporter = nodemailer.createTransport({
-      host: process.env.EMAIL_HOST || 'smtp.gmail.com',
-      port: process.env.EMAIL_PORT || 465,
-      secure: true, // true for port 465
-      auth: {
-        user: process.env.EMAIL_USER,
-        pass: process.env.EMAIL_PASS,
-      },
-      connectionTimeout: 10000, // 10 seconds
-      greetingTimeout: 5000,    // 5 seconds
-      logger: true,             // nodemailer logs
-      debug: true,              // show SMTP traffic in console
-    });
-  }
-};
-
 const sendEmail = async (to, subject, htmlContent, textContent) => {
-  if (!transporter) initTransporter();
+  const RESEND_API_KEY = process.env.RESEND_API_KEY;
 
-  const mailOptions = {
-    from: `"ShopNow" <${process.env.EMAIL_USER}>`,
-    to,
-    subject,
-    text: textContent,
+  if (!RESEND_API_KEY) {
+    console.error("❌ RESEND_API_KEY is not defined in .env");
+    throw new Error("Email sending failed: RESEND_API_KEY is missing");
+  }
+
+  // If a custom verified domain is not set, default to Resend's default test sender
+  const fromEmail = process.env.RESEND_FROM || process.env.EMAIL_USER || "onboarding@resend.dev";
+  const fromName = process.env.RESEND_FROM_NAME || "SuperNapier";
+
+  const payload = {
+    from: `"${fromName}" <${fromEmail}>`,
+    to: Array.isArray(to) ? to : [to],
+    subject: subject,
     html: htmlContent,
+    text: textContent
   };
 
-  console.log("📨 Sending email to:", to);
+  console.log("📨 Sending email via Resend to:", to);
   console.log("📝 Subject:", subject);
-  console.log("💬 Text:", textContent);
-  console.log("🖥 HTML:", htmlContent);
 
   try {
-    const info = await transporter.sendMail(mailOptions);
-    console.log(`✅ Email sent successfully! Message ID: ${info.messageId}`);
-    return info;
-  } catch (error) {
-    console.error("❌ Failed to send email!");
-    console.error("Error details:", error);
+    const response = await axios.post(
+      'https://api.resend.com/emails',
+      payload,
+      {
+        headers: {
+          'Authorization': `Bearer ${RESEND_API_KEY}`,
+          'Content-Type': 'application/json'
+        }
+      }
+    );
 
-    // Optional: give a friendly message for API responses
-    throw new Error(`Email sending failed: ${error.message}`);
+    console.log("✅ Resend response:", response.data);
+    return response.data;
+  } catch (error) {
+    console.error("❌ Resend Email sending failed!");
+    if (error.response && error.response.data) {
+      console.error("Resend API Error details:", error.response.data);
+      throw new Error(`Resend sending failed: ${JSON.stringify(error.response.data)}`);
+    } else {
+      console.error("Error details:", error.message);
+      throw new Error(`Resend sending failed: ${error.message}`);
+    }
   }
 };
 

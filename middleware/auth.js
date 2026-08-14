@@ -24,6 +24,7 @@ exports.protect = async (req, res, next) => {
     const decoded = jwt.verify(token, JWT_SECRET);
     const user = await User.findById(decoded.userId).select('-password -otp -otpExpires');
     if (!user) return res.status(401).json({ message: 'User not found' });
+    if (user.isActive === false) return res.status(403).json({ message: 'Account is deactivated' });
 
     req.user = user; // attach user
     next();
@@ -46,6 +47,7 @@ exports.protectPilot = async (req, res, next) => {
 
     const pilot = await PilotUser.findById(pilotId).select('-password -otp -otpExpires');
     if (!pilot) return res.status(401).json({ message: 'Pilot not found' });
+    if (pilot.isActive === false) return res.status(403).json({ message: 'Account is deactivated' });
 
     req.pilot = pilot; // attach pilot
     next();

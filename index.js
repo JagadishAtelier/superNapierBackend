@@ -22,13 +22,40 @@ const io = new Server(server, {
 // Attach io to app.locals so controllers can use req.app.locals.io
 app.locals.io = io;
 
+const jwt = require("jsonwebtoken");
+const JWT_SECRET = process.env.JWT_SECRET;
+
+// Socket.IO authentication middleware
+io.use((socket, next) => {
+  const token = socket.handshake.auth?.token || socket.handshake.query?.token;
+  if (!token) {
+    return next(new Error("Authentication error: No token provided"));
+  }
+  try {
+    const decoded = jwt.verify(token, JWT_SECRET);
+    socket.user = decoded; // { userId, role }
+    next();
+  } catch (err) {
+    return next(new Error("Authentication error: Invalid or expired token"));
+  }
+});
+
 // 3️⃣ Socket.IO connection
 io.on("connection", (socket) => {
-  console.log("⚡ Socket connected:", socket.id);
+  console.log("⚡ Socket connected:", socket.id, "User:", socket.user?.userId);
 
   // Pilot joins rooms: broadcasts to pilot group + a dedicated pilot room
   socket.on("joinPilots", (pilotId) => {
     try {
+      const socketRole = socket.user?.role;
+      if (socketRole !== "delivery" && socketRole !== "admin") {
+        return console.warn(`⚠️ Unauthorized attempt to joinPilots by role: ${socketRole}`);
+      }
+      const tokenUserId = socket.user?.userId || socket.user?.id;
+      if (socketRole === "delivery" && String(tokenUserId) !== String(pilotId)) {
+        return console.warn(`⚠️ Pilot ID mismatch in joinPilots: ${tokenUserId} vs ${pilotId}`);
+      }
+
       socket.join("pilots");
       if (pilotId) socket.join(`pilot_${pilotId}`);
       console.log(`👨‍✈️ Pilot ${pilotId || "(unknown)"} joined rooms`);
@@ -39,6 +66,9 @@ io.on("connection", (socket) => {
 
   // Admins can join an admins room
   socket.on("joinAdmins", () => {
+    if (socket.user?.role !== "admin") {
+      return console.warn(`⚠️ Unauthorized attempt to joinAdmins by: ${socket.user?.userId}`);
+    }
     socket.join("admins");
     console.log("🔒 Admin joined admins room");
   });
@@ -46,6 +76,15 @@ io.on("connection", (socket) => {
   // Socket-based claim flow (atomic)
   socket.on("claimOrder", async ({ orderId, pilotId }) => {
     try {
+      const socketRole = socket.user?.role;
+      if (socketRole !== "delivery" && socketRole !== "admin") {
+        return socket.emit("claimResponse", { success: false, message: "Delivery pilot role required" });
+      }
+      const tokenUserId = socket.user?.userId || socket.user?.id;
+      if (socketRole === "delivery" && String(tokenUserId) !== String(pilotId)) {
+        return socket.emit("claimResponse", { success: false, message: "Unauthorized pilot ID claim attempt" });
+      }
+
       const Order = require("./Model/Order"); // keep your current path
       const ObjectId = mongoose.Types.ObjectId;
 

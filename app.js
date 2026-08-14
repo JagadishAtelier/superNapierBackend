@@ -37,15 +37,24 @@ const limiter = rateLimit({
   message: "Too many requests from this IP, please try again after 15 minutes",
 });
 
-// Apply limiter to auth routes
+// Apply limiter to auth and OTP routes
 app.use("/api/auth", limiter);
+app.use("/api/otp", limiter);
+
+// Middleware (with rawBody parser for webhook signature checks)
+app.use(express.json({
+  limit: "10mb",
+  verify: (req, res, buf) => {
+    if (req.originalUrl.startsWith("/api/webhooks/razorpay")) {
+      req.rawBody = buf;
+    }
+  }
+}));
+app.use(express.urlencoded({ limit: "10mb", extended: true }));
 
 // Webhooks
 app.use("/api/webhooks/razorpay", razorpayWebhook);
 
-// Middleware
-app.use(express.json({ limit: "10mb" }));
-app.use(express.urlencoded({ limit: "10mb", extended: true }));
 app.use(cors({
   origin: "*",  // allows requests from any domain
   credentials: true, // optional: only needed if you use cookies or auth headers

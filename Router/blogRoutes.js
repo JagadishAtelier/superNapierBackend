@@ -1,5 +1,6 @@
 const express = require("express");
 const router = express.Router();
+const { protect, restrictToRole } = require("../middleware/auth");
 
 const {
   createBlog,
@@ -10,7 +11,7 @@ const {
 } = require("../controllers/blogController");
 
 // CREATE
-router.post("/", createBlog);
+router.post("/", protect, restrictToRole("admin"), createBlog);
 
 // GET ALL
 router.get("/", getAllBlogs);
@@ -19,9 +20,9 @@ router.get("/", getAllBlogs);
 router.get("/:id", getBlogById);
 
 // UPDATE
-router.put("/:id", updateBlog);
+router.put("/:id", protect, restrictToRole("admin"), updateBlog);
 
 // DELETE
-router.delete("/:id", deleteBlog);
+router.delete("/:id", protect, restrictToRole("admin"), deleteBlog);
 
 module.exports = router;

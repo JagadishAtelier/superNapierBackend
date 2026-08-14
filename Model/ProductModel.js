@@ -31,18 +31,60 @@ const productSchema = new mongoose.Schema(
     youtubeVideoId: { type: String },
     statisticalHighlights: [
       {
-        title: { type: String },
-        description: { type: String },
+        title: {
+          en: { type: String },
+          ta: { type: String },
+          hi: { type: String },
+          te: { type: String },
+          kn: { type: String },
+          ml: { type: String },
+        },
+        description: {
+          en: { type: String },
+          ta: { type: String },
+          hi: { type: String },
+          te: { type: String },
+          kn: { type: String },
+          ml: { type: String },
+        },
         image: { type: String }
       }
     ],
     howToUseSteps: [
       {
-        title: { type: String },
-        heading: { type: String },
-        description: { type: String },
+        title: {
+          en: { type: String },
+          ta: { type: String },
+          hi: { type: String },
+          te: { type: String },
+          kn: { type: String },
+          ml: { type: String },
+        },
+        heading: {
+          en: { type: String },
+          ta: { type: String },
+          hi: { type: String },
+          te: { type: String },
+          kn: { type: String },
+          ml: { type: String },
+        },
+        description: {
+          en: { type: String },
+          ta: { type: String },
+          hi: { type: String },
+          te: { type: String },
+          kn: { type: String },
+          ml: { type: String },
+        },
         image: { type: String },
-        bullets: [{ type: String }]
+        bullets: {
+          en: [{ type: String }],
+          ta: [{ type: String }],
+          hi: [{ type: String }],
+          te: [{ type: String }],
+          kn: [{ type: String }],
+          ml: [{ type: String }],
+        }
       }
     ],
 

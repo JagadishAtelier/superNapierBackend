@@ -230,7 +230,21 @@ exports.getCartByUserId = async (req, res) => {
     const itemIndex = cart.items.findIndex(item => item._id.toString() === itemId);
     if (itemIndex === -1) return res.status(404).json({ success: false, message: "Item not found in cart" });
 
-    // Update fields if provided
+    const targetItem = cart.items[itemIndex];
+    const checkProduct = await Product.findById(targetItem.product);
+    if (!checkProduct) return res.status(404).json({ success: false, message: "Product not found" });
+
+    const selectedWeightOptionId = weightOptionId !== undefined ? weightOptionId : targetItem.weightOption;
+    const selectedQuantity = quantity !== undefined ? quantity : targetItem.quantity;
+
+    if (checkProduct.weightOptions && selectedWeightOptionId) {
+      const option = checkProduct.weightOptions.find(o => o._id.toString() === selectedWeightOptionId.toString());
+      if (option && option.stock < selectedQuantity) {
+        return res.status(400).json({ success: false, message: `Insufficient stock. Only ${option.stock} units of ${checkProduct.name?.en || 'product'} (${option.weight}${option.unit}) are available.` });
+      }
+    }
+
+    // Update fields if provided and valid
     if (quantity !== undefined) cart.items[itemIndex].quantity = quantity;
     if (price !== undefined) cart.items[itemIndex].price = price;
     if (weightOptionId !== undefined) cart.items[itemIndex].weightOption = weightOptionId;

@@ -1,15 +1,16 @@
 const express = require("express");
 const router = express.Router();
 const categoryController = require("../controllers/categoryController");
+const { protect, restrictToRole } = require("../middleware/auth");
 
-router.post("/", categoryController.createCategory);
+router.post("/", protect, restrictToRole("admin"), categoryController.createCategory);
 router.get("/", categoryController.getCategories);
 router.get("/lang", categoryController.getCategoriesByLang);
 router.get("/:id", categoryController.getCategoryById);
-router.put("/:id", categoryController.updateCategory);
-router.delete("/:id", categoryController.deleteCategory);
+router.put("/:id", protect, restrictToRole("admin"), categoryController.updateCategory);
+router.delete("/:id", protect, restrictToRole("admin"), categoryController.deleteCategory);
 
-router.post("/:id/subcategory", categoryController.addSubcategory);
-router.delete("/:id/subcategory/:subIndex", categoryController.removeSubcategory);
+router.post("/:id/subcategory", protect, restrictToRole("admin"), categoryController.addSubcategory);
+router.delete("/:id/subcategory/:subIndex", protect, restrictToRole("admin"), categoryController.removeSubcategory);
 
 module.exports = router;

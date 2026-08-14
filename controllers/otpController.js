@@ -1,14 +1,12 @@
 require('dotenv').config();
 const axios = require('axios');
+const Otp = require('../Model/OtpModel');
 
 const FAST2SMS_KEY = process.env.FAST2SMS_API_KEY;
 const OTP_TTL = parseInt(process.env.OTP_TTL_SECONDS || '300', 10); // 5 mins
 const MAX_ATTEMPTS = parseInt(process.env.OTP_MAX_ATTEMPTS || '5', 10);
 
 if (!FAST2SMS_KEY) console.warn('⚠️ FAST2SMS_API_KEY not set in .env');
-
-// In-memory OTP store
-const otpStore = new Map();
 
 // Generate 6-digit OTP
 function generateOTP() {
@@ -47,8 +45,19 @@ exports.sendOtp = async (req, res) => {
     if (!phone) return res.status(400).json({ success: false, error: 'Phone number is required' });
 
     const otp = generateOTP();
-    const expiresAt = Date.now() + OTP_TTL * 1000;
-    otpStore.set(phone, { otp, expiresAt, attempts: 0 });
+    const expiresAt = new Date(Date.now() + OTP_TTL * 1000);
+
+    // Clean up previous OTPs for this phone
+    await Otp.deleteMany({ phone });
+
+    // Store OTP in database
+    const otpRecord = new Otp({
+      phone,
+      otp,
+      expiresAt,
+      attempts: 0
+    });
+    await otpRecord.save();
 
     console.log(`💬 Sending OTP ${otp} to ${phone}`);
 
@@ -72,24 +81,24 @@ exports.verifyOtp = async (req, res) => {
     const { phone, otp } = req.body;
     if (!phone || !otp) return res.status(400).json({ success: false, error: 'Phone and OTP are required' });
 
-    const entry = otpStore.get(phone);
+    const entry = await Otp.findOne({ phone });
     if (!entry) return res.status(400).json({ success: false, error: 'No OTP requested or expired' });
 
-    if (Date.now() > entry.expiresAt) {
-      otpStore.delete(phone);
+    if (new Date() > entry.expiresAt) {
+      await Otp.deleteOne({ _id: entry._id });
       return res.status(400).json({ success: false, error: 'OTP expired' });
     }
 
     entry.attempts++;
-    otpStore.set(phone, entry);
+    await entry.save();
 
     if (entry.attempts > MAX_ATTEMPTS) {
-      otpStore.delete(phone);
+      await Otp.deleteOne({ _id: entry._id });
       return res.status(429).json({ success: false, error: 'Too many attempts' });
     }
 
     if (entry.otp === otp.toString().trim()) {
-      otpStore.delete(phone);
+      await Otp.deleteOne({ _id: entry._id });
       return res.status(200).json({ success: true, message: 'OTP verified successfully' });
     } else {
       const triesLeft = MAX_ATTEMPTS - entry.attempts;
