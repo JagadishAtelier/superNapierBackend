@@ -4,6 +4,7 @@ const orderController = require("../controllers/orderController");
 const { protect, restrictToRole } = require("../middleware/auth");
 
 // --- Specific endpoints first ---
+router.post("/preview-shipping", orderController.previewShipping);
 router.get("/unread", protect, restrictToRole('admin'), orderController.getUnreadOrders);          
 router.patch("/:id/read", protect, restrictToRole('admin'), orderController.markOrderAsRead);     
 router.put("/:id/adminorderstatus", protect, restrictToRole('admin'), orderController.updateOrderStatusByAdmin); 

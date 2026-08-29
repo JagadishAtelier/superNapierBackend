@@ -27,7 +27,12 @@ exports.createBlog = async (req, res) => {
           ? item.image
           : item.image
           ? [item.image]
-          : []
+          : [],
+        metaKeywords: item.metaKeywords,
+        taggedProducts: item.taggedProducts || [],
+        whatsappCTA: item.whatsappCTA || false,
+        whatsappCTAText: item.whatsappCTAText || "Inquire on WhatsApp",
+        whatsappCTAMessage: item.whatsappCTAMessage
       }));
 
       const savedBlogs = await Blog.insertMany(formattedData);
@@ -40,7 +45,7 @@ exports.createBlog = async (req, res) => {
     }
 
     // 🔁 If single blog
-    const { title, date, excerpt, content, image } = data;
+    const { title, date, excerpt, content, image, metaKeywords, taggedProducts, whatsappCTA, whatsappCTAText, whatsappCTAMessage } = data;
 
     const newBlog = new Blog({
       title,
@@ -57,7 +62,12 @@ exports.createBlog = async (req, res) => {
           span: ["style"]
         }
       }),
-      image: Array.isArray(image) ? image : image ? [image] : []
+      image: Array.isArray(image) ? image : image ? [image] : [],
+      metaKeywords,
+      taggedProducts: taggedProducts || [],
+      whatsappCTA: whatsappCTA || false,
+      whatsappCTAText: whatsappCTAText || "Inquire on WhatsApp",
+      whatsappCTAMessage
     });
 
     const savedBlog = await newBlog.save();
@@ -76,7 +86,7 @@ exports.createBlog = async (req, res) => {
 // ✅ GET ALL BLOGS
 exports.getAllBlogs = async (req, res) => {
   try {
-    const blogs = await Blog.find().sort({ createdAt: -1 });
+    const blogs = await Blog.find().populate("taggedProducts").sort({ createdAt: -1 });
     res.status(200).json({ success: true, count: blogs.length, data: blogs });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
@@ -86,7 +96,7 @@ exports.getAllBlogs = async (req, res) => {
 // ✅ GET BLOG BY ID
 exports.getBlogById = async (req, res) => {
   try {
-    const blog = await Blog.findById(req.params.id);
+    const blog = await Blog.findById(req.params.id).populate("taggedProducts");
     if (!blog) return res.status(404).json({ success: false, message: "Blog not found" });
     res.status(200).json({ success: true, data: blog });
   } catch (error) {

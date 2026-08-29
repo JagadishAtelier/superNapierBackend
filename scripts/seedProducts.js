@@ -76,8 +76,35 @@ async function seed() {
                     ml: "സൂപ്പർ നേപ്പിയർ (Pakchong 1) ഉയർന്ന വിളവ് നൽകുന്ന ഒരു സങ്കരയിനം നേപ്പിയർ പുല്ലാണ്. ഇത് ഒരേക്കറിൽ പ്രതിവർഷം 180 മുതൽ 200 ടൺ വരെ പച്ചപ്പുല്ല് നൽകുന്നു. ഇതിൽ 14% മുതൽ 18% വരെ ഉയർന്ന പ്രോട്ടീൻ അടങ്ങിയിരിക്കുന്നു, തണ്ടുകൾക്ക് കരിമ്പിന്റെ മധുരവുമുണ്ട്."
                 },
                 category: napierGrassId,
+                unit: "piece",
+                weightOptions: [
+                    { weight: 500, price: 645, discountPrice: 1200, unit: "piece", stock: 1000 },
+                    { weight: 1000, price: 1290, discountPrice: 2400, unit: "piece", stock: 1000 },
+                    { weight: 5000, price: 6450, discountPrice: 12000, unit: "piece", stock: 1000 },
+                    { weight: 10000, price: 12900, discountPrice: 24000, unit: "piece", stock: 1000 }
+                ],
+                SKU: "sn101",
+                shippingNormalTN: 50,
+                shippingExpressTN: 60,
+                shippingNormalOutside: 100,
+                shippingExpressOutside: 180,
                 status: "Active",
-                // Preserve existing highlights and steps if they already exist, otherwise we upsert below
+                productVideoUrl: {
+                    en: "https://www.youtube.com/watch?v=jEkdrGXddew",
+                    ta: "https://www.youtube.com/watch?v=LYSTt263Q4I",
+                    hi: "https://www.youtube.com/watch?v=YAOMCXUDXfo",
+                    te: "https://www.youtube.com/watch?v=jBGl5ILVDIc",
+                    kn: "https://www.youtube.com/watch?v=KHR2OJatryk",
+                    ml: "https://www.youtube.com/watch?v=B3KYPwhZbp0"
+                },
+                howToPlantVideoUrl: {
+                    en: "https://www.youtube.com/watch?v=YYL5vrLfHzQ",
+                    ta: "https://www.youtube.com/watch?v=1mMFrqGN6RU",
+                    hi: "https://www.youtube.com/watch?v=8rGnvZr7p3g",
+                    te: "https://www.youtube.com/watch?v=uMD12DiA3wo",
+                    kn: "https://www.youtube.com/watch?v=zVpUds3cplo",
+                    ml: "https://www.youtube.com/watch?v=cE90OycKMvY"
+                },
             },
             {
                 productId: "103",
@@ -101,10 +128,10 @@ async function seed() {
                 images: smallNapierImg ? [smallNapierImg] : [],
                 unit: "piece",
                 weightOptions: [
-                    { weight: 500, price: 500, discountPrice: 1000, unit: "piece", stock: 1000 },
-                    { weight: 1000, price: 950, discountPrice: 2000, unit: "piece", stock: 1000 },
-                    { weight: 5000, price: 4500, discountPrice: 10000, unit: "piece", stock: 1000 },
-                    { weight: 10000, price: 8500, discountPrice: 20000, unit: "piece", stock: 1000 }
+                    { weight: 500, price: 1000, discountPrice: 2000, unit: "piece", stock: 1000 },
+                    { weight: 1000, price: 2000, discountPrice: 4000, unit: "piece", stock: 1000 },
+                    { weight: 5000, price: 10000, discountPrice: 20000, unit: "piece", stock: 1000 },
+                    { weight: 10000, price: 20000, discountPrice: 40000, unit: "piece", stock: 1000 }
                 ],
                 SKU: "sp103",
                 shippingNormalTN: 50,
@@ -135,10 +162,10 @@ async function seed() {
                 images: hedgeLucerneImg ? [hedgeLucerneImg] : [],
                 unit: "kg",
                 weightOptions: [
-                    { weight: 1, price: 450, discountPrice: 600, unit: "kg", stock: 500 },
-                    { weight: 2, price: 850, discountPrice: 1200, unit: "kg", stock: 500 },
-                    { weight: 5, price: 2000, discountPrice: 3000, unit: "kg", stock: 500 },
-                    { weight: 8, price: 3100, discountPrice: 4800, unit: "kg", stock: 500 }
+                    { weight: 1, price: 850, discountPrice: 1200, unit: "kg", stock: 500 },
+                    { weight: 2, price: 1700, discountPrice: 2400, unit: "kg", stock: 500 },
+                    { weight: 5, price: 4250, discountPrice: 6000, unit: "kg", stock: 500 },
+                    { weight: 8, price: 6800, discountPrice: 9600, unit: "kg", stock: 500 }
                 ],
                 SKU: "hl104",
                 shippingNormalTN: 50,
@@ -150,12 +177,12 @@ async function seed() {
             {
                 productId: "105",
                 name: {
-                    en: "Moringa / Drumstick Seeds",
-                    ta: "முருங்கை விதைகள்",
-                    hi: "सहजन के बीज (मोरिंगा)",
-                    te: "మునగ గింజలు (మోరింగా)",
-                    kn: "ನುಗ್ಗೆ ಬೀಜಗಳು (ಮೊರಿಂಗಾ)",
-                    ml: "മുരിങ്ങ വിത്തുകൾ"
+                    en: "Moringa PKM-1 / Drumstick Seeds",
+                    ta: "முருங்கை பி.கே.எம்-1 விதைகள்",
+                    hi: "सहजन के बीज (मोरिंगा पीकेएम-1)",
+                    te: "మునగ గింజలు (మోరింగా పి.కె.ఎమ్-1)",
+                    kn: "ನುಗ್ಗೆ ಬೀಜಗಳು (ಮೊರಿಂಗಾ ಪಿಕೆಎಂ-1)",
+                    ml: "മുരിങ്ങ വിത്തുകൾ (പി.കെ.എം-1)"
                 },
                 description: {
                     en: "High-quality Moringa Oleifera (Drumstick) seeds for planting. Yields 35 to 40 tons of green fodder per year as livestock feed. The tree leaves are extremely nutritious, protein-rich, and serve as an excellent supplement for farm animals.",
@@ -169,10 +196,10 @@ async function seed() {
                 images: moringaImg ? [moringaImg] : [],
                 unit: "kg",
                 weightOptions: [
-                    { weight: 100, price: 200, discountPrice: 300, unit: "g", stock: 300 },
-                    { weight: 250, price: 450, discountPrice: 600, unit: "g", stock: 300 },
-                    { weight: 500, price: 800, discountPrice: 1200, unit: "g", stock: 300 },
-                    { weight: 1, price: 1500, discountPrice: 2200, unit: "kg", stock: 300 }
+                    { weight: 100, price: 85, discountPrice: 150, unit: "g", stock: 300 },
+                    { weight: 250, price: 213, discountPrice: 350, unit: "g", stock: 300 },
+                    { weight: 500, price: 425, discountPrice: 650, unit: "g", stock: 300 },
+                    { weight: 1, price: 850, discountPrice: 1200, unit: "kg", stock: 300 }
                 ],
                 SKU: "ms105",
                 shippingNormalTN: 50,
@@ -203,10 +230,10 @@ async function seed() {
                 images: agathiImg ? [agathiImg] : [],
                 unit: "kg",
                 weightOptions: [
-                    { weight: 1, price: 400, discountPrice: 550, unit: "kg", stock: 500 },
-                    { weight: 2, price: 750, discountPrice: 1100, unit: "kg", stock: 500 },
-                    { weight: 5, price: 1800, discountPrice: 2700, unit: "kg", stock: 500 },
-                    { weight: 8, price: 2800, discountPrice: 4200, unit: "kg", stock: 500 }
+                    { weight: 1, price: 950, discountPrice: 1300, unit: "kg", stock: 500 },
+                    { weight: 2, price: 1900, discountPrice: 2600, unit: "kg", stock: 500 },
+                    { weight: 5, price: 4750, discountPrice: 6500, unit: "kg", stock: 500 },
+                    { weight: 8, price: 7600, discountPrice: 10400, unit: "kg", stock: 500 }
                 ],
                 SKU: "as106",
                 shippingNormalTN: 50,
@@ -237,10 +264,10 @@ async function seed() {
                 images: soundalImg ? [soundalImg] : [],
                 unit: "kg",
                 weightOptions: [
-                    { weight: 1, price: 350, discountPrice: 500, unit: "kg", stock: 500 },
-                    { weight: 2, price: 650, discountPrice: 950, unit: "kg", stock: 500 },
-                    { weight: 5, price: 1500, discountPrice: 2200, unit: "kg", stock: 500 },
-                    { weight: 8, price: 2300, discountPrice: 3500, unit: "kg", stock: 500 }
+                    { weight: 1, price: 299, discountPrice: 450, unit: "kg", stock: 500 },
+                    { weight: 2, price: 598, discountPrice: 900, unit: "kg", stock: 500 },
+                    { weight: 5, price: 1495, discountPrice: 2250, unit: "kg", stock: 500 },
+                    { weight: 8, price: 2392, discountPrice: 3600, unit: "kg", stock: 500 }
                 ],
                 SKU: "ss107",
                 shippingNormalTN: 50,
@@ -264,6 +291,8 @@ async function seed() {
                 if (data.weightOptions) existingProduct.weightOptions = data.weightOptions;
                 if (data.unit) existingProduct.unit = data.unit;
                 existingProduct.status = data.status;
+                if (data.productVideoUrl) existingProduct.productVideoUrl = data.productVideoUrl;
+                if (data.howToPlantVideoUrl) existingProduct.howToPlantVideoUrl = data.howToPlantVideoUrl;
                 await existingProduct.save();
             } else {
                 console.log(`Creating new product ${data.productId} (${data.name.en})...`);

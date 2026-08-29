@@ -1,4 +1,5 @@
 const Coupon = require("../Model/CouponModel");
+const GlobalSettings = require("../Model/GlobalSettings");
 
 // Create Coupon
 exports.createCoupon = async (req, res) => {
@@ -19,6 +20,17 @@ exports.createCoupon = async (req, res) => {
     const exists = await Coupon.findOne({ code });
     if (exists) {
       return res.status(400).json({ message: "Coupon already exists" });
+    }
+
+    // Check collision with GlobalSettings wheel offers
+    const settings = await GlobalSettings.findOne({ settingsId: "site_settings" });
+    if (settings && settings.wheelOffers) {
+      const isWheelOffer = settings.wheelOffers.some(
+        (offer) => offer.couponCode?.trim().toUpperCase() === code.trim().toUpperCase()
+      );
+      if (isWheelOffer) {
+        return res.status(400).json({ message: `Coupon code '${code}' is reserved for spin wheel offers.` });
+      }
     }
 
     const coupon = new Coupon({
@@ -64,6 +76,20 @@ exports.getCouponById = async (req, res) => {
 // Update Coupon
 exports.updateCoupon = async (req, res) => {
   try {
+    // If code is being updated, check collision with GlobalSettings wheel offers
+    if (req.body.code) {
+      const code = req.body.code;
+      const settings = await GlobalSettings.findOne({ settingsId: "site_settings" });
+      if (settings && settings.wheelOffers) {
+        const isWheelOffer = settings.wheelOffers.some(
+          (offer) => offer.couponCode?.trim().toUpperCase() === code.trim().toUpperCase()
+        );
+        if (isWheelOffer) {
+          return res.status(400).json({ message: `Coupon code '${code}' is reserved for spin wheel offers.` });
+        }
+      }
+    }
+
     const coupon = await Coupon.findByIdAndUpdate(
       req.params.id,
       req.body,

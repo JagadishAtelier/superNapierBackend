@@ -14,7 +14,22 @@ const productSchema = new mongoose.Schema(
     },
     category: { type: mongoose.Schema.Types.ObjectId, ref: "Category", required: true },
 
-    productVideoUrl: { type: String },
+    productVideoUrl: {
+      en: { type: String },
+      ta: { type: String },
+      hi: { type: String },
+      te: { type: String },
+      kn: { type: String },
+      ml: { type: String },
+    },
+    howToPlantVideoUrl: {
+      en: { type: String },
+      ta: { type: String },
+      hi: { type: String },
+      te: { type: String },
+      kn: { type: String },
+      ml: { type: String },
+    },
 
     description: {
       en: { type: String },

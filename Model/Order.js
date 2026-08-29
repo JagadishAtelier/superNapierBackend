@@ -117,6 +117,34 @@ const orderSchema = new mongoose.Schema(
 
     taxAmount: { type: Number, default: 0 },
     shippingFee: { type: Number, default: 0 },
+    shippingBreakdown: {
+      region: {
+        type: String,
+        enum: ["TN", "SOUTH", "REST"]
+      },
+      seedShipping: {
+        amount: { type: Number, default: 0 },
+        weightKg: { type: Number, default: 0 },
+        ratePerKg: { type: Number, default: 0 }
+      },
+      cuttingShipping: {
+        amount: { type: Number, default: 0 },
+        cuttingValue: { type: Number, default: 0 },
+        ratePercent: { type: Number, default: 0 }
+      },
+      totalShipping: {
+        type: Number,
+        default: 0
+      },
+      settingsSnapshot: {
+        seedCourierTN: Number,
+        seedCourierSouth: Number,
+        seedCourierRest: Number,
+        napierTransitTNRate: Number,
+        napierTransitSouthRate: Number,
+        napierTransitRestRate: Number
+      }
+    },
 
     // make total/finalAmount safe (defaults), so controller can compute them if missing
     total: { type: Number, default: 0 },
@@ -239,5 +267,7 @@ orderSchema.statics.releaseClaim = async function (orderIdOrId, pilotId) {
     { new: true }
   );
 };
+orderSchema.index({ paymentStatus: 1, createdAt: -1 });
+orderSchema.index({ createdAt: -1 });
 
 module.exports = mongoose.model("Order", orderSchema);

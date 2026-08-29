@@ -9,6 +9,7 @@ const User = require("../Model/User");
 const whatsappService = require("../utils/whatsappService");
 const GlobalSettings = require("../Model/GlobalSettings");
 const sendEmail = require("../utils/sendEmail");
+const { validateAndCalculateCoupon } = require("../services/couponService");
 
 const Joi = require("joi");
 
@@ -39,7 +40,9 @@ const createOrderSchema = Joi.object({
     screenshot: Joi.string().allow("").optional(),
     transactionId: Joi.string().allow("").optional()
   }).optional(),
-  shippingAddress: Joi.object().optional(),
+  shippingAddress: Joi.object({
+    state: Joi.string().required()
+  }).required().unknown(true),
 }).unknown(true);
 
 exports.createOrder = async (req, res, next) => {
@@ -70,13 +73,11 @@ exports.createOrder = async (req, res, next) => {
       ...rest
     } = value;
 
-    // 2. Check stock and calculate exact shipping
-    let calculatedShippingFee = 0;
-    const state = shippingAddress?.state?.toLowerCase() || "";
-    const isTamilNadu = state.includes("tamil") || state.trim() === "tn";
-    const shippingLocationType = isTamilNadu ? "TN" : "Outside";
-    
-    let maxShippingFound = 0;
+    // 2. Check stock and calculate exact shipping using centralized backend shippingService
+    const shippingService = require("../services/shippingService");
+    const shippingResult = await shippingService.calculateShipping(products, shippingAddress.state);
+    const calculatedShippingFee = shippingResult.totalShipping;
+    const shippingLocationType = (shippingResult.region === "TN") ? "TN" : "Outside";
 
     for (const item of products) {
       const product = await Product.findById(item.productId).session(session);
@@ -84,28 +85,17 @@ exports.createOrder = async (req, res, next) => {
         throw new Error(`Product not found: ${item.productId}`);
       }
 
-      // Calculate regional shipping for this product
-      let productShipping = 0;
-      if (shippingType === "Express") {
-        productShipping = isTamilNadu ? (product.shippingExpressTN || 0) : (product.shippingExpressOutside || 0);
-      } else {
-        productShipping = isTamilNadu ? (product.shippingNormalTN || 0) : (product.shippingNormalOutside || 0);
-      }
-      
-      if (productShipping > maxShippingFound) {
-        maxShippingFound = productShipping;
-      }
-
       const weightOption = product.weightOptions.find(
         (w) => w._id.toString() === item.weightOptionId.toString()
       );
       if (!weightOption) {
-        throw new Error(`Weight option not found for product: ${product.name}`);
+        throw new Error(`Weight option not found for product: ${product.name.en}`);
       }
 
       if (weightOption.stock < item.quantity) {
-        throw new Error(`Insufficient stock for ${product.name} (${weightOption.weight}${weightOption.unit})`);
+        throw new Error(`Insufficient stock for ${product.name.en} (${weightOption.weight}${weightOption.unit})`);
       }
+
       // Decrease stock
       await Product.updateOne(
         { _id: item.productId, "weightOptions._id": item.weightOptionId },
@@ -114,56 +104,71 @@ exports.createOrder = async (req, res, next) => {
       );
     }
 
-    // 3. Fetch Settings for Dynamic Threshold
-    const settings = await GlobalSettings.findOne({ settingsId: "site_settings" });
-    const freeShippingThreshold = settings?.freeShippingThreshold || 999;
-
-    // 4. Calculate Shipping Fee with Fallbacks
-    if (subtotal >= freeShippingThreshold) {
-      calculatedShippingFee = 0;
-    } else if (maxShippingFound === 0) {
-      // Fallback fees matching frontend if no product-specific shipping is set
-      if (isTamilNadu) {
-        calculatedShippingFee = (shippingType === "Express") ? 80 : 50;
-      } else {
-        calculatedShippingFee = (shippingType === "Express") ? 150 : 100;
-      }
-    } else {
-      calculatedShippingFee = maxShippingFound;
-    }
-
-    // 3. Coupon Validation
+    // 3. Coupon Validation (calculated on the backend, ignoring client-supplied discount payload)
     let coupon = null;
     let couponDiscount = 0;
     let couponSnapshot = null;
 
     if (couponCode) {
-      coupon = await Coupon.findOne({ code: couponCode.toUpperCase() }).session(session);
+      const result = await validateAndCalculateCoupon(couponCode, subtotal);
+      if (!result.isValid) {
+        throw new Error(result.message);
+      }
 
-      if (!coupon) throw new Error("Invalid coupon code");
-      if (coupon.status !== "active") throw new Error("Coupon is not active");
-
-      const now = new Date();
-      if (now < coupon.startDate || now > coupon.endDate) throw new Error("Coupon expired or not started");
-      if (coupon.usageLimit > 0 && coupon.usedCount >= coupon.usageLimit) throw new Error("Coupon usage limit reached");
-      if (subtotal < coupon.minOrderAmount) throw new Error(`Minimum order amount ₹${coupon.minOrderAmount} required`);
-
-      couponDiscount = Math.min((subtotal * coupon.percentage) / 100, coupon.maxDiscountAmount || Infinity);
-      
+      couponDiscount = result.discount;
       couponSnapshot = {
-        name: coupon.name,
-        code: coupon.code,
-        percentage: coupon.percentage,
-        minOrderAmount: coupon.minOrderAmount,
-        maxDiscountAmount: coupon.maxDiscountAmount,
+        name: result.type === "promotional" ? result.model.name : result.offer.label,
+        code: result.couponCode,
+        percentage: result.type === "promotional" ? result.model.percentage : (result.offer.type === "percentage" ? result.offer.value : 0),
+        minOrderAmount: result.minOrder,
+        maxDiscountAmount: result.type === "promotional" ? result.model.maxDiscountAmount : (result.offer.maxDiscount || 0),
       };
 
-      // Increase coupon usage
-      await Coupon.findByIdAndUpdate(coupon._id, { $inc: { usedCount: 1 } }, { session });
+      if (result.type === "promotional") {
+        coupon = result.model;
+        // Atomic conditional update to prevent usage limit race conditions
+        const query = {
+          _id: coupon._id,
+          $or: [
+            { usageLimit: 0 },
+            { $expr: { $lt: ["$usedCount", "$usageLimit"] } }
+          ]
+        };
+        const updated = await Coupon.findOneAndUpdate(
+          query,
+          { $inc: { usedCount: 1 } },
+          { session, new: true }
+        );
+        if (!updated) {
+          throw new Error("Coupon usage limit reached");
+        }
+      } else if (result.type === "wheel") {
+        // Atomic conditional update for dynamic wheel segment to prevent usage limit race conditions
+        const query = {
+          settingsId: "site_settings",
+          wheelOffers: {
+            $elemMatch: {
+              id: result.offer.id
+            }
+          }
+        };
+        if (result.offer.usageLimit > 0) {
+          query.wheelOffers.$elemMatch.usedCount = { $lt: result.offer.usageLimit };
+        }
+
+        const updated = await GlobalSettings.findOneAndUpdate(
+          query,
+          { $inc: { "wheelOffers.$.usedCount": 1 } },
+          { session, new: true }
+        );
+        if (!updated) {
+          throw new Error("Coupon usage limit reached");
+        }
+      }
     }
 
     // 4. Build and Create Order
-    const computedDiscount = coupon ? couponDiscount : discount;
+    const computedDiscount = couponDiscount; // Client-supplied discount parameter is completely ignored
     const finalTotal = subtotal - computedDiscount + taxAmount + calculatedShippingFee;
 
     const orderData = {
@@ -181,6 +186,13 @@ exports.createOrder = async (req, res, next) => {
       notification_read: false,
       paymentMethod,
       shippingAddress,
+      shippingBreakdown: {
+        region: shippingResult.region,
+        seedShipping: shippingResult.seedShipping,
+        cuttingShipping: shippingResult.cuttingShipping,
+        totalShipping: shippingResult.totalShipping,
+        settingsSnapshot: shippingResult.settingsSnapshot
+      },
       ...rest,
     };
 
@@ -289,6 +301,90 @@ exports.createOrder = async (req, res, next) => {
           } catch (emailErr) {
             console.error("Order Confirmation Email failed:", emailErr.message);
           }
+        }
+
+        // Send Email to Configured Admins
+        try {
+          const settings = await GlobalSettings.findOne({ settingsId: "site_settings" });
+          if (settings) {
+            const adminEmails = [settings.adminEmail1, settings.adminEmail2].map(e => (e || "").trim()).filter(Boolean);
+            if (adminEmails.length > 0) {
+              const adminSubject = `New Order Received - ${order.orderId}`;
+              const adminHtmlContent = `
+                <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #f0f0f0; border-radius: 8px;">
+                  <div style="text-align: center; margin-bottom: 20px; background-color: #1b4332; color: white; padding: 15px; border-radius: 6px;">
+                    <h2 style="margin: 0;">New Order Notification 📦</h2>
+                    <p style="margin: 5px 0 0 0; font-size: 14px;">Order ID: ${order.orderId}</p>
+                  </div>
+                  
+                  <div style="margin-bottom: 20px;">
+                    <h3 style="color: #1b4332; border-bottom: 1px solid #eee; padding-bottom: 5px; margin-top: 0;">Customer Details</h3>
+                    <p style="margin: 4px 0;"><strong>Name:</strong> ${order.buyerDetails?.name || 'N/A'}</p>
+                    <p style="margin: 4px 0;"><strong>Phone:</strong> ${order.buyerDetails?.phone || 'N/A'}</p>
+                    <p style="margin: 4px 0;"><strong>Email:</strong> ${order.buyerDetails?.email || 'N/A'}</p>
+                  </div>
+
+                  <div style="margin-bottom: 20px;">
+                    <h3 style="color: #1b4332; border-bottom: 1px solid #eee; padding-bottom: 5px;">Shipping Address</h3>
+                    <p style="color: #555; margin: 4px 0;">
+                      ${order.shippingAddress?.firstName || ''} ${order.shippingAddress?.lastName || ''}<br/>
+                      ${order.shippingAddress?.addressLine1 || ''} ${order.shippingAddress?.addressLine2 || ''}<br/>
+                      ${order.shippingAddress?.city || ''}, ${order.shippingAddress?.state || ''} - ${order.shippingAddress?.pincode || ''}
+                    </p>
+                  </div>
+
+                  <div style="margin-bottom: 20px;">
+                    <h3 style="color: #1b4332; border-bottom: 1px solid #eee; padding-bottom: 5px;">Order Summary</h3>
+                    <table style="width: 100%; border-collapse: collapse; margin-bottom: 15px;">
+                      <thead>
+                        <tr style="background-color: #f8f9fa;">
+                          <th style="text-align: left; padding: 8px; border-bottom: 1px solid #eee; font-size: 13px;">Item</th>
+                          <th style="text-align: center; padding: 8px; border-bottom: 1px solid #eee; font-size: 13px;">Qty</th>
+                          <th style="text-align: right; padding: 8px; border-bottom: 1px solid #eee; font-size: 13px;">Price</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        ${order.products.map(item => `
+                          <tr>
+                            <td style="padding: 8px; border-bottom: 1px solid #eee; font-size: 13px;">${item.name || 'Product'} ${item.weight ? `(${item.weight}${item.unit || ''})` : ''}</td>
+                            <td style="text-align: center; padding: 8px; border-bottom: 1px solid #eee; font-size: 13px;">${item.quantity}</td>
+                            <td style="text-align: right; padding: 8px; border-bottom: 1px solid #eee; font-size: 13px;">₹${(item.price * item.quantity).toFixed(2)}</td>
+                          </tr>
+                        `).join('')}
+                      </tbody>
+                    </table>
+                  </div>
+
+                  <div style="margin-bottom: 20px; text-align: right; font-size: 14px;">
+                    <p style="margin: 4px 0;"><strong>Subtotal:</strong> ₹${order.subtotal.toFixed(2)}</p>
+                    ${order.discount ? `<p style="margin: 4px 0; color: #dc3545;"><strong>Discount:</strong> -₹${order.discount.toFixed(2)}</p>` : ''}
+                    <p style="margin: 4px 0;"><strong>Shipping Fee:</strong> ₹${order.shippingFee.toFixed(2)}</p>
+                    <h3 style="margin: 8px 0 0 0; color: #1b4332;">Total Amount: ₹${order.finalAmount.toFixed(2)}</h3>
+                  </div>
+
+                  <div style="margin-bottom: 20px; background-color: #fcfcfc; padding: 12px; border: 1px dashed #ddd; border-radius: 6px;">
+                    <h4 style="margin: 0 0 6px 0; color: #333;">Payment & Status</h4>
+                    <p style="margin: 4px 0; font-size: 13px;"><strong>Method:</strong> ${order.paymentMethod}</p>
+                    <p style="margin: 4px 0; font-size: 13px;"><strong>Status:</strong> ${order.paymentStatus}</p>
+                  </div>
+
+                  <div style="text-align: center; margin-top: 25px;">
+                    <a href="http://localhost:5174/orders/${order._id}" style="background-color: #1b4332; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px; font-weight: bold; font-size: 14px;">View Order in Dashboard</a>
+                  </div>
+                </div>
+              `;
+              const adminTextContent = `New Order Received - Order ID: ${order.orderId}. Customer: ${order.buyerDetails?.name || 'N/A'}. Total: ₹${order.finalAmount}.`;
+              for (const email of adminEmails) {
+                try {
+                  await sendEmail(email, adminSubject, adminHtmlContent, adminTextContent);
+                } catch (sendErr) {
+                  console.error(`Failed to send order email to admin ${email}:`, sendErr.message);
+                }
+              }
+            }
+          }
+        } catch (settingsErr) {
+          console.error("Configured admins notification process failed:", settingsErr.message);
         }
       }
     } catch (wsErr) {
@@ -777,5 +873,23 @@ exports.markOrderAsRead = async (req, res) => {
   } catch (err) {
     console.log("🔴 markOrderAsRead error:", err.message);
     return res.status(400).json({ success: false, error: err.message });
+  }
+};
+
+exports.previewShipping = async (req, res, next) => {
+  try {
+    const { items, state } = req.body;
+    if (!state) {
+      return res.status(400).json({ success: false, message: "State code is required." });
+    }
+    if (!items || !Array.isArray(items) || items.length === 0) {
+      return res.status(400).json({ success: false, message: "Cart items are required." });
+    }
+
+    const shippingService = require("../services/shippingService");
+    const result = await shippingService.calculateShipping(items, state);
+    res.status(200).json({ success: true, data: result });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
   }
 };

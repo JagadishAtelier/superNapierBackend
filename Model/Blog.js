@@ -7,6 +7,11 @@ const blogSchema = new mongoose.Schema({
   excerpt: { type: String, required: true },
   image: [{ type: String }], // multiple thumbnails or images
   content: { type: String, required: true }, // will store HTML
+  metaKeywords: { type: String },
+  taggedProducts: [{ type: mongoose.Schema.Types.ObjectId, ref: "Product" }],
+  whatsappCTA: { type: Boolean, default: false },
+  whatsappCTAText: { type: String, default: "Inquire on WhatsApp" },
+  whatsappCTAMessage: { type: String }
 }, { timestamps: true });
 
 // Pre-save hook to sanitize HTML content
