@@ -19,6 +19,7 @@ const couponRoutes = require("./Router/couponRoutes");
 const blogRoutes = require("./Router/blogRoutes");
 const settingsRoutes = require("./Router/settingsRoutes");
 const pageRoutes = require("./Router/pageRoutes");
+const shareRoutes = require("./Router/shareRoutes");
 const razorpayWebhook = require("./Router/razorpayWebhook");
 const cors = require("cors")
 const helmet = require("helmet");
@@ -81,6 +82,8 @@ app.use("/api/coupons", couponRoutes);
 app.use("/api/blog", blogRoutes);
 app.use("/api/settings", settingsRoutes);
 app.use("/api/pages", pageRoutes);
+app.use("/share", shareRoutes);
+app.use("/api/share", shareRoutes);
 
 // Global Error Handler (Must be after all routes)
 app.use(errorHandler);
