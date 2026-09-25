@@ -21,6 +21,7 @@ const settingsRoutes = require("./Router/settingsRoutes");
 const pageRoutes = require("./Router/pageRoutes");
 const shareRoutes = require("./Router/shareRoutes");
 const razorpayWebhook = require("./Router/razorpayWebhook");
+const contactRoutes = require("./Router/contactRoutes");
 const cors = require("cors")
 const helmet = require("helmet");
 const rateLimit = require("express-rate-limit");
@@ -84,6 +85,7 @@ app.use("/api/settings", settingsRoutes);
 app.use("/api/pages", pageRoutes);
 app.use("/share", shareRoutes);
 app.use("/api/share", shareRoutes);
+app.use("/api/contact", contactRoutes);
 
 // Global Error Handler (Must be after all routes)
 app.use(errorHandler);

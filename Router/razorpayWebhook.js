@@ -9,11 +9,13 @@ const whatsappService = require("../utils/whatsappService");
 const WEBHOOK_SECRET = process.env.RAZORPAY_WEBHOOK_SECRET;
 
 router.post("/", async (req, res, next) => {
+  console.log("\n📥 [WEBHOOK] Received call from Razorpay at", new Date().toISOString());
   try {
     const signature = req.headers["x-razorpay-signature"];
 
     // 1. Verify Signature using raw body buffer
     if (!req.rawBody) {
+      console.error("❌ [WEBHOOK] Raw body missing for signature verification");
       return res.status(400).json({ success: false, message: "Raw body missing for signature verification" });
     }
     const shasum = crypto.createHmac("sha256", WEBHOOK_SECRET);
@@ -21,8 +23,11 @@ router.post("/", async (req, res, next) => {
     const digest = shasum.digest("hex");
 
     if (signature !== digest) {
+      console.error("❌ [WEBHOOK] Invalid signature match! Expected:", digest, "Received:", signature);
       return res.status(400).json({ success: false, message: "Invalid signature" });
     }
+
+    console.log("✅ [WEBHOOK] Signature verified successfully");
 
     const event = req.body.event;
     console.log("🔔 Razorpay Webhook Event:", event);
@@ -34,9 +39,14 @@ router.post("/", async (req, res, next) => {
       const razorpayPaymentId = payload.id;
 
       // Find order by razorpayOrderId
+      console.log(`🔍 [WEBHOOK] Looking up order for Razorpay Order ID: ${razorpayOrderId}`);
       const order = await Order.findOne({ razorpayOrderId });
 
-      if (order && order.paymentStatus !== "paid") {
+      if (!order) {
+        console.error(`⚠️ [WEBHOOK] Order not found for Razorpay Order ID: ${razorpayOrderId}`);
+      } else if (order.paymentStatus === "paid") {
+        console.log(`⏭️ [WEBHOOK] Order ${order.orderId} is already paid. Skipping update.`);
+      } else if (order) {
         order.paymentStatus = "paid";
         order.paymentDate = new Date();
         order.razorpayPaymentId = razorpayPaymentId;
@@ -48,7 +58,7 @@ router.post("/", async (req, res, next) => {
         }
 
         await order.save();
-        console.log(`✅ Order ${order.orderId} marked as PAID via Webhook`);
+        console.log(`✅ [WEBHOOK] SUCCESS! Order ${order.orderId} marked as PAID via Webhook.`);
 
         // 3. Send WhatsApp Notification
         const phone = order.buyerDetails?.phone;
@@ -81,7 +91,7 @@ router.post("/", async (req, res, next) => {
 
     res.status(200).json({ status: "ok" });
   } catch (err) {
-    console.error("❌ Webhook Error:", err.message);
+    console.error("❌ [WEBHOOK] Error processing webhook:", err.message);
     next(err);
   }
 });
